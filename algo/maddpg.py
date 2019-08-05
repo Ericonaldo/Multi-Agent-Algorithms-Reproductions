@@ -140,12 +140,15 @@ class Actor(BaseModel):
         """ Return an action id -> integer """
 
         policy = self.sess.run(self.t_policy, feed_dict={self.obs_input: obs})
-        act = np.argmax(policy, axis=1)
+        act = policy
+        
+        return act
+        # act = np.argmax(policy, axis=1)
 
-        if one_hot:
-            return np.eye(*policy.shape)[act]
-        else:
-            return act
+        # if one_hot:
+        #     return np.eye(*policy.shape)[act]
+        # else:
+        #     return act
 
     def train(self, feed_dict):
         loss, _ = self.sess.run([self._loss, self._train_op], feed_dict=feed_dict)
@@ -154,7 +157,7 @@ class Actor(BaseModel):
 
 
 class Critic(BaseModel):
-    def __init__(self, sess, multi_obs_phs, multi_act_phs, multi_act_tfs, lr=1e-3, gamma=0.98, tau=0.01, name=None, agent_id=None):
+    def __init__(self, sess, multi_obs_phs, multi_act_phs, lr=1e-3, gamma=0.98, tau=0.01, name=None, agent_id=None):
         super().__init__(name)
 
         self.sess = sess
@@ -174,7 +177,7 @@ class Critic(BaseModel):
         self.multi_act_phs = multi_act_phs
 
         obs_input = tf.concat(multi_obs_phs, axis=1, name="obs-clus-input")
-        act_input = tf.concat(multi_act_tfs, axis=1, name="act-clus-input")
+        act_input = tf.concat(multi_act_phs, axis=1, name="act-clus-input")
 
         self.input = tf.concat([obs_input, act_input], axis=1, name="concat-input")
         self.target_input = tf.concat([obs_input, act_input], axis=1, name="target-concat-input")
@@ -196,7 +199,8 @@ class Critic(BaseModel):
             weight_decay = tf.add_n([self.L2 * tf.nn.l2_loss(var) for var in self.e_variables])
 
             self.t_q_input = tf.placeholder(tf.float32, shape=(None, 1), name="target-input")
-            self._loss = 0.5 * tf.reduce_mean(tf.square(self.t_q_input - self.e_q)) + weight_decay
+            # self._loss = 0.5 * tf.reduce_mean(tf.square(self.t_q_input - self.e_q)) + weight_decay
+            self._loss = tf.reduce_mean(tf.square(self.t_q_input - self.e_q)) 
 
             optimizer = tf.train.AdamOptimizer(self._lr)
             grad_vars = optimizer.compute_gradients(self._loss, self.e_variables)
@@ -303,9 +307,10 @@ class MADDPG(object):
 
             for i in range(self.env.n):
                 print("initialize critic for agent {} ...".format(i))
-                mask_act_tfs = self._mask_other_act_phs(act_tfs, i)  # stop gradient
+                # mask_act_tfs = self._mask_other_act_phs(act_tfs, i)  # stop gradient
                 with tf.variable_scope("critic_{}_{}".format(name, i)):
-                    self.critics.append(Critic(self.sess, self.obs_phs, self.act_phs, mask_act_tfs, lr=critic_lr, name=name, agent_id=i))
+                    # self.critics.append(Critic(self.sess, self.obs_phs, self.act_phs, mask_act_tfs, lr=critic_lr, name=name, agent_id=i))
+                    self.critics.append(Critic(self.sess, self.obs_phs, self.act_phs, lr=critic_lr, name=name, agent_id=i))
                     self.actions_dims.append(self.env.action_space[i].n)
 
             # set optimizer for actors
