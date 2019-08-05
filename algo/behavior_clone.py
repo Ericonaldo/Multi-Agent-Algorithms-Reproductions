@@ -8,6 +8,32 @@ import tensorflow.contrib as tc
 from common.utils import flatten, softmax
 from common.utils import BaseModel
 
+class Dataset(object):
+    def __init__(self, agent_num, capacity=65536):
+        self.agent_num = agent_num
+        self._capacity = capacity
+        self._size = 0
+        self._observations = [[] for _ in range(agent_num)]
+        self._actions = [[] for _ in range(agent_num)]
+
+    def __len__(self):
+        return self._size
+
+    def push(self, obs_n, act_n):
+        if self._size<self._capacity:
+            self._observations = map(lambda x, y: y + [x], obs_n, self._observations)
+            self._actions = map(lambda x, y: y + [x], act_n, self._actions)
+        
+        self._size = min(self.size+1, self._capacity)
+        
+        return self._size<self._capacity
+
+    def shuffle(self):
+        indices = list(range(self._size)) 
+
+    def next(self, batch_size):
+
+
 class BCActor(BaseModel):
     def __init__(self, sess, state_space, act_space, lr=1e-4, name=None, agent_id=None):
         super().__init__(name)
@@ -34,6 +60,12 @@ class BCActor(BaseModel):
 
         self._act_tf = self._act_prob
 
+        with tf.variable_scope("optimization"):
+            self._loss = -tf.reduce_mean(tf.square(self.target_act - self._act_prob))
+            optimizer = tf.train.AdamOptimizer(self._lr)
+            grad_vars = optimizer.compute_gradients(self._loss, self.e_variables)
+            self._train_op = optimizer.apply_gradients(grad_vars)
+
     @property
     def e_variables(self):
         return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=self._eval_scope)
@@ -56,13 +88,6 @@ class BCActor(BaseModel):
         out = tf.layers.dense(l2, units=out_dim)
 
         return out
-
-    def set_optimization(self, q_func):
-        with tf.variable_scope("optimization"):
-            self._loss = -tf.reduce_mean(tf.square(self.target_act - self._act_prob))
-            optimizer = tf.train.AdamOptimizer(self._lr)
-            grad_vars = optimizer.compute_gradients(self._loss, self.e_variables)
-            self._train_op = optimizer.apply_gradients(grad_vars)
 
     def update(self):
         self.sess.run(self._update_op)
@@ -88,31 +113,79 @@ class MABehavioralCloning:
         self.action_dims = []
         self.batch_size = batch_size
 
-        self.tar_act_n_phs = [tf.placeholder(tf.int32, shape=[None,], name='target_act'+str(i) for i in range)
-        
         # == Construct Network for Each Agent ==
         with tf.variable_scope(self.name):
             for i in range(self.env.n):
                 print("initialize behavior actor for agent {} ...".format(i))
                 with tf.variable_scope("policy_{}_{}".format(name, i)):
                     obs_space, act_space = env.observation_space[i].shape, (env.action_space[i].n,)
-                    self.actors.append(Actor(self.sess, state_space=obs_space, act_space=act_space, lr=actor_lr, tau=tau,
+                    self.actors.append(BCActor(self.sess, state_space=obs_space, act_space=act_space, lr=actor_lr,
                                              name=name, agent_id=i))
 
             # collect action outputs of all actors
             self.obs_phs = [actor.obs_tensor for actor in self.actors]
-            act_tfs = [actor.act_tensor for actor in self.actors]
+            self.tar_act_phs = [actor.tar_act_tensor for actor in self.actors]
+            self.act_tfs = [actor.act_tensor for actor in self.actors]
 
+    def init(self):
+        self.sess.run(tf.global_variables_initializer())
 
-        loss = tf.reduce_sum(actions_vec * tf.log(tf.clip_by_value(self.Policy.act_probs, 1e-10, 1.0)), 1)
-        loss = - tf.reduce_mean(loss)
-        tf.summary.scalar('loss/cross_entropy', loss)
+    def act(self, obs_set):
+        """ Accept a observation list, return action list of all agents. """
+        actions = []
+        for i, (obs, agent) in enumerate(zip(obs_set, self.actors)):
+            n = self.actions_dims[i]
 
-        optimizer = tf.train.AdamOptimizer()
-        self.train_op = optimizer.minimize(loss)
+            logits = agent.act(obs)
+            noise = np.random.gumbel(size=np.shape(logits)) # gumbel softmax
+            logits += noise
 
-        self.merged = tf.summary.merge_all()
+            policy = softmax(logits)
 
-    def train(self, obs, act):
+            # actions.append([np.random.choice(n, p=policy)])
+            actions.append(policy)
 
+        return actions
 
+    def save(self, dir_path, epoch, max_to_keep):
+        """ Save model
+        :param dir_path: str, the grandparent directory path for model saving
+        :param epoch: int, global step
+        :param max_to_keep: the maximum of keeping models
+        """
+
+        dir_name = os.path.join(dir_path, self.name)
+        if not os.path.exists(dir_name):
+            os.makedirs(dir_name)
+        model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.name)
+        saver = tf.train.Saver(model_vars, max_to_keep=max_to_keep)
+        save_path = saver.save(self.sess, dir_name + "/{}".format(self.name), global_step=epoch)
+        print("[*] Model saved in file: {}".format(save_path))
+
+    def load(self, dir_path, epoch=0):
+        """ Load model from local storage.
+
+        :param dir_path: str, the grandparent directory path for model saving
+        :param epoch: int, global step
+        """
+
+        file_path = None
+
+        dir_name = os.path.join(dir_path, self.name)
+        model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.name)
+        saver = tf.train.Saver(model_vars)
+        file_path = os.path.join(dir_name, "{}-{}".format(self.name, epoch))
+        saver.restore(self.sess, file_path)
+
+    def train(self, obs, tar_act):
+        
+        loss = [0.] * self.n_agent
+
+        for i in range(self.n_agent):
+            feed_dict = dict()
+            feed_dict.update(zip(self.obs_phs[i], obs[i]))
+            feed_dict.update(zip(self.tar_act_phs[i], tar_act[i]))
+
+            loss[i] = self.actors[i].train(feed_dict)
+
+        return {'loss': loss} 
