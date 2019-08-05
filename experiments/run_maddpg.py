@@ -122,6 +122,7 @@ if __name__ == '__main__':
     t_start = time.time()
     total_step = 0
     t_info_n = None
+    episode_r_all = []
     for ep in range(0, num_episodes):
         a_loss = [[] for _ in range(num_agents)]
         c_loss = [[] for _ in range(num_agents)]
@@ -161,6 +162,7 @@ if __name__ == '__main__':
 
         # every episode
         episode_r_n = [round(_, 3) for _ in episode_r_n]
+        episode_r_all.append(episode_r_n)
 
         # if t_info_n is not None:
         # if not is_evaluate:
@@ -177,11 +179,11 @@ if __name__ == '__main__':
 
             if (ep+1) % args.save_interval == 0:
                 maddpg.save(args.save_dir+args.scenario, ep+1, args.max_to_keep)
-                print("\n--- episode-{} | [a-loss]: {} | [c-loss]: {} | [reward]: {} | [inter-time]: {}".format(ep+1, a_loss, c_loss, episode_r_n, round(time.time()-t_start),4))
+                print("\n--- episode-{} | [a-loss]: {} | [c-loss]: {} | [mean-reward]: {} | [inter-time]: {}".format(ep+1, a_loss, c_loss, np.mean(episode_r_all, axis=0), round(time.time()-t_start),4))
                 t_start = time.time()
 
         if is_evaluate:
-            print("\n--- episode-{} | [reward]: {} | [inter-time]: {}".format(ep+1, episode_r_n, round(time.time()-t_start),4))
+            print("\n--- episode-{} | [mean-reward]: {} | [inter-time]: {}".format(ep+1, np.mean(episode_r_all, axis=0), round(time.time()-t_start),4))
             t_start = time.time()
            
         obs_n = env.reset()
