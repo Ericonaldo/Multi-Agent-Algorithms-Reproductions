@@ -6,32 +6,7 @@ import tensorflow as tf
 import tensorflow.contrib as tc
 
 from common.utils import flatten, softmax
-from common.utils import BaseModel
-
-class Dataset(object):
-    def __init__(self, agent_num, capacity=65536):
-        self.agent_num = agent_num
-        self._capacity = capacity
-        self._size = 0
-        self._observations = [[] for _ in range(agent_num)]
-        self._actions = [[] for _ in range(agent_num)]
-
-    def __len__(self):
-        return self._size
-
-    def push(self, obs_n, act_n):
-        if self._size<self._capacity:
-            self._observations = map(lambda x, y: y + [x], obs_n, self._observations)
-            self._actions = map(lambda x, y: y + [x], act_n, self._actions)
-        
-        self._size = min(self.size+1, self._capacity)
-        
-        return self._size<self._capacity
-
-    def shuffle(self):
-        indices = list(range(self._size)) 
-
-    def next(self, batch_size):
+from common.utils import BaseModel, Dataset
 
 
 class BCActor(BaseModel):
