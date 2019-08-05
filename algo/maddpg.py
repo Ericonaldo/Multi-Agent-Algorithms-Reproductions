@@ -57,7 +57,7 @@ class BunchBuffer(Buffer):
 
 
 class Actor(BaseModel):
-    def __init__(self, sess, state_space, act_space, lr=1e-4, tau=0.01, name=None, agent_id=None):
+    def __init__(self, sess, state_space, act_space, lr=1e-2, tau=0.01, name=None, agent_id=None):
         super().__init__(name)
 
         self._lr = lr
@@ -157,7 +157,7 @@ class Actor(BaseModel):
 
 
 class Critic(BaseModel):
-    def __init__(self, sess, multi_obs_phs, multi_act_phs, lr=1e-3, gamma=0.98, tau=0.01, name=None, agent_id=None):
+    def __init__(self, sess, multi_obs_phs, multi_act_phs, lr=1e-2, gamma=0.99, tau=0.01, name=None, agent_id=None):
         super().__init__(name)
 
         self.sess = sess
@@ -275,7 +275,7 @@ class Critic(BaseModel):
 
 
 class MADDPG(object):
-    def __init__(self, sess, env, name, n_agent, batch_size=64, actor_lr=1e-4, critic_lr=1e-3, 
+    def __init__(self, sess, env, name, n_agent, batch_size=512, actor_lr=1e-2, critic_lr=1e-2, 
             gamma=0.99, tau=0.01, memory_size=10**4):
         # == Initialize ==
         self.name = name

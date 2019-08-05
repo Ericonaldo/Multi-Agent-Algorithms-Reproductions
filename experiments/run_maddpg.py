@@ -34,7 +34,7 @@ if __name__ == '__main__':
     parser.add_argument("--critic_lr", type=float, default=1e-2, help="learning rate of critic for Adam optimizer")
     parser.add_argument("--gamma", type=float, default=0.95, help="discount factor")
     parser.add_argument("--tau", type=float, default=0.01, help='Hyper-parameter for soft update (default=0.01)')
-    parser.add_argument("--batch_size", type=int, default=512, help="number of episodes to optimize at the same time")
+    parser.add_argument("--batch_size", type=int, default=512, help="the batch size to optimize at the same time")
     parser.add_argument('--memory_size', type=int, default=10**4, help='Memory size (default=10**4)')
     # Checkpointing & Logging
     parser.add_argument("--exp_name", type=str, default="maddpg", help="name of the experiment")
@@ -186,7 +186,6 @@ if __name__ == '__main__':
             print("\n--- episode-{} | [mean-reward]: {} | [inter-time]: {}".format(ep+1, np.mean(episode_r_all, axis=0), round(time.time()-t_start),4))
             t_start = time.time()
            
-        obs_n = env.reset()
     env.close()
     summary_writer.close()
     sess.close()

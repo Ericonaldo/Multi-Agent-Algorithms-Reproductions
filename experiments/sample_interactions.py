@@ -35,20 +35,16 @@ if __name__ == '__main__':
     # Environment
     parser.add_argument("--scenario", type=str, default="simple", help="name of the scenario script")
     parser.add_argument("--max_episode_len", type=int, default=40, help="maximum episode length")
-    parser.add_argument("--train_episodes", type=int, default=60000, help="number of episodes")
+    parser.add_argument("--episodes", type=int, default=1000, help="number of episodes")
     parser.add_argument("--num_agents", type=int, default=2, help="number of agents")
     # parser.add_argument("--good_policy", type=str, default="maddpg", help="policy for good agents")
     # parser.add_argument("--adv_policy", type=str, default="maddpg", help="policy of adversaries")
     # Core training parameters
-    parser.add_argument("--actor_lr", type=float, default=1e-2, help="learning rate of actor for Adam optimizer")
-    parser.add_argument("--critic_lr", type=float, default=1e-2, help="learning rate of critic for Adam optimizer")
-    parser.add_argument("--gamma", type=float, default=0.95, help="discount factor")
-    parser.add_argument("--tau", type=float, default=0.01, help='Hyper-parameter for soft update (default=0.01)')
-    parser.add_argument("--batch_size", type=int, default=512, help="number of episodes to optimize at the same time")
     parser.add_argument('--dataset_size', type=int, default=10**4, help='Memory size (default=10**4)')
     # Checkpointing & Logging
     parser.add_argument("--exp_name", type=str, default="sample_interactions", help="name of the experiment")
     parser.add_argument("--restore", action="store_true", default=False)
+    parser.add_argument("--data_dir", type=str, default="./expert_data/", help="directory in which expert interactions are loaded")
     parser.add_argument("--load_dir", type=str, default="./trained_models/", help="directory in which training state and model are loaded")
     parser.add_argument("--load_epoch", type=int, default=1000, help="the epoch of loaded model")
     # Evaluation
@@ -74,44 +70,44 @@ if __name__ == '__main__':
     num_agents = min(args.num_agents, env.n)
 
     maddpg = MADDPG(sess, env, args.exp_name, num_agents, args.batch_size, args.actor_lr, args.critic_lr, args.gamma, args.tau)
-    dataset = Dataset(args.batch_size, num_agents)
+    dataset = Dataset(num_agents)
 
     maddpg.init()
     load_dir = args.load_dir + args.scenario
     maddpg.load(load_dir, epoch=args.load_epoch)
 
-    with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
-        saver.restore(sess, args.model)
-        obs = env.reset()
+    # ======================================== main loop ======================================== #
+    num_episodes = args.train_episodes
+    print("Start Sampling...")
 
-        for iteration in range(args.iteration):  # episode
-            observations = []
-            actions = []
-            run_steps = 0
-            while True:
-                run_steps += 1
-                # prepare to feed placeholder Policy.obs
-                obs = np.stack([obs]).astype(dtype=np.float32)
+    total_step = 0
+    for ep in range(0, num_episodes):
+        t_start = time.time()
+        obs_n = env.reset()
+        episode_r_n = [0. for _ in range(num_agents)]
 
-                act, _ = Policy.act(obs=obs, stochastic=True)
-                act = np.asscalar(act)
+        for step in range(0, args.max_episode_len):
+            if is_render:
+                # time.sleep(0.1)
+                env.render(mode=None)
+            act_n = maddpg.act(obs_n)
+            next_obs_n, reward_n, done_n, info_n = env.step(act_n)
+            done = all(done_n)
 
-                observations.append(obs)
-                actions.append(act)
+            flag = dataset.push(obs_n, act_n)
 
-                next_obs, reward, done, info = env.step(act)
+            obs_n = next_obs_n
+            episode_r_n = list(map(operator.add, episode_r_n, reward_n))
+            total_step += 1
 
-                if done:
-                    print(run_steps)
-                    obs = env.reset()
-                    break
-                else:
-                    obs = next_obs
+            if done:
+                break
 
-            observations = np.reshape(observations, newshape=[-1] + list(ob_space.shape))
-            actions = np.array(actions).astype(dtype=np.int32)
+        episode_r_n = [round(_, 3) for _ in episode_r_n]
+        print("\n--- episode-{} | [reward]: {} | [time]: {}".format(ep+1, episode_r_n, round(time.time()-t_start),4))
+        if not flag:
+            break
 
-            open_file_and_save('trajectory/observations.csv', observations)
-            open_file_and_save('trajectory/actions.csv', actions)
-
+    dataset.save(args.data_dir)
+    env.close()
+    sess.close()

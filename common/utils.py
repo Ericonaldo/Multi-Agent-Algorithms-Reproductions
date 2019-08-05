@@ -78,7 +78,18 @@ class Dataset(object):
         return batch_obs_n, batch_act_n
 
     def save(self, save_dir):
-
+        obs_path = save_dir + "expert_obs.csv"
+        act_path = save_dir + "expert_act.csv"
+        try:
+            with open(obs_path, 'ab') as f_handle:
+                np.savetxt(f_handle, data, fmt='%s')
+            with open(act_path, 'ab') as f_handle:
+                np.savetxt(f_handle, data, fmt='%s')
+        except FileNotFoundError:
+            with open(obs_path, 'wb') as f_handle:
+                np.savetxt(f_handle, data, fmt='%s')
+            with open(act_path, 'wb') as f_handle:
+                np.savetxt(f_handle, data, fmt='%s')
 
 
 class BaseModel(object):

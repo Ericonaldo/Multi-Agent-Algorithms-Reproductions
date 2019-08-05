@@ -27,7 +27,7 @@ if __name__ == '__main__':
     # Core training parameters
     parser.add_argument("--lr", type=float, default=1e-2, help="learning rate for Adam optimizer")
     # parser.add_argument("--gamma", type=float, default=0.95, help="discount factor")
-    parser.add_argument("--batch_size", type=int, default=64, help="number of episodes to optimize at the same time")
+    parser.add_argument("--batch_size", type=int, default=256, help="the batch size to optimize at the same time")
     # Checkpointing & Logging
     parser.add_argument("--exp_name", type=str, default="behavior_clone", help="name of the experiment")
     parser.add_argument("--save_interval", type=int, default=400, help='Interval episode for saving model(default=400)')
