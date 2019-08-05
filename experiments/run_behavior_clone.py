@@ -71,7 +71,7 @@ if __name__ == '__main__':
 
             tf.summary.scalar('Loss-{}'.format(i), summary_loss[i])
 
-        summary_dict['loss'] = summary_c_loss
+        summary_dict['loss'] = summary_loss
 
         merged = tf.summary.merge_all()
 
