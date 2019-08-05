@@ -45,7 +45,7 @@ class Buffer:
         return self._capacity
 
 class Dataset(object):
-    def __init__(self, batch_size, agent_num, capacity=65536):
+    def __init__(self, agent_num, batch_size=512, capacity=65536):
         self.agent_num = agent_num
         self._capacity = capacity
         self._size = 0
@@ -56,6 +56,12 @@ class Dataset(object):
 
     def __len__(self):
         return self._size
+
+    def clear(self):
+        self._size = 0
+        self._observations = [[] for _ in range(agent_num)]
+        self._actions = [[] for _ in range(agent_num)]
+        self._point = 0
 
     def push(self, obs_n, act_n):
         if self._size<self._capacity:
@@ -68,16 +74,18 @@ class Dataset(object):
 
     def shuffle(self):
         indices = list(range(self._size)) 
+        random.shuffle(indices)
         self._observations = map(lambda x, y: x[y], self._observations, indices)
         self._actions = map(lambda x, y: x[y], self._actions, indices)
         self._point = 0
 
-    def next(self, batch_size):
-        batch_obs_n = map(lambda x, y: x[y:y+batch_size], self._observations, point)
-        batch_act_n = map(lambda x, y: x[y:y+batch_size], self._actions, point)
+    def next(self):
+        batch_obs_n = map(lambda x, y: x[y:y+self.batch_size], self._observations, point)
+        batch_act_n = map(lambda x, y: x[y:y+self.batch_size], self._actions, point)
+
         return batch_obs_n, batch_act_n
 
-    def save(self, save_dir):
+    def save_data(self, save_dir):
         obs_path = save_dir + "expert_obs.csv"
         act_path = save_dir + "expert_act.csv"
         try:
@@ -90,6 +98,12 @@ class Dataset(object):
                 np.savetxt(f_handle, data, fmt='%s')
             with open(act_path, 'wb') as f_handle:
                 np.savetxt(f_handle, data, fmt='%s')
+
+    def load_data(self, load_dir):
+        obs_path = load_dir + "expert_obs.csv"
+        act_path = load_dir + "expert_act.csv"
+        self._observations = np.genfromtxt(obs_path)
+        self._actions = np.genfromtxt(act_path)
 
 
 class BaseModel(object):

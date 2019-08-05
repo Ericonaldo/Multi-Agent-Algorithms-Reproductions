@@ -22,16 +22,18 @@ if __name__ == '__main__':
     # Environment
     parser.add_argument("--scenario", type=str, default="simple", help="name of the scenario script")
     parser.add_argument("--max_episode_len", type=int, default=40, help="maximum episode length")
-    parser.add_argument("--train_episodes", type=int, default=60000, help="number of episodes")
+    parser.add_argument("--episodes", type=int, default=120, help="number of episodes")
+    parser.add_argument("--iterations", type=int, default=1000, help="number of training iterations")
     parser.add_argument("--num_agents", type=int, default=2, help="number of agents")
     # Core training parameters
     parser.add_argument("--lr", type=float, default=1e-2, help="learning rate for Adam optimizer")
     parser.add_argument("--gamma", type=float, default=0.95, help="discount factor")
-    parser.add_argument("--batch_size", type=int, default=64, help="number of episodes to optimize at the same time")
+    parser.add_argument("--batch_size", type=int, default=64, help="the batch size to optimize at the same time")
     # Checkpointing & Logging
     parser.add_argument("--exp_name", type=str, default="behavior_clone", help="name of the experiment")
     parser.add_argument("--save_interval", type=int, default=400, help='Interval episode for saving model(default=400)')
     parser.add_argument("--save_dir", type=str, default="./trained_models/", help="Parent directory in which trained models should be saved")
+    parser.add_argument("--data_dir", type=str, default="./interactions/", help="Directory in which expert data is saved")
     parser.add_argument("--log_dir", type=str, default="./logs/", help="directory of logging")
     parser.add_argument("--restore", action="store_true", default=False)
     parser.add_argument("--load_dir", type=str, default="./trained_models/", help="Parent directory in which trained models are loaded")
@@ -62,6 +64,9 @@ if __name__ == '__main__':
 
     num_agents = min(args.num_agents, env.n)
     maiail = MAIAIL(sess, env, args.exp_name, num_agents, args.batch_size, args.lr, args.gamma)
+    expert_dataset = Dataset(num_agents, args.batch_size)
+    learning_dataset = Dataset(num_agents, args.batch_size)
+    expert_dataset.load_data(args.data_dir)
 
     if not is_evaluate:
         # initialize summary
@@ -91,16 +96,12 @@ if __name__ == '__main__':
 
     if args.restore or is_evaluate:
         load_dir = args.load_dir + args.scenario
-        bc.load(load_dir, epoch=args.load_epoch)
+        maiail.load(load_dir, epoch=args.load_epoch)
 
     # ======================================== main loop ======================================== #
-    obs_n_E = np.genfromtxt('interactions/observations.csv') # [len, n]
-    act_n_E = np.genfromtxt('interactions/actions.csv', dtype=np.int32) # [len, n]
-
     batch_size = args.batch_size
-    num_episodes = args.train_episodes
-    max_episode_len = args.max_episode_len
-    episode_reward_all = []
+    t_start = time.time()
+    total_step = 0
     if is_evaluate:
         num_episodes = 100
     p_loss, d_loss = None, None
@@ -114,42 +115,45 @@ if __name__ == '__main__':
     total_step = 0
     observations_n = []
     actions_n = []
-
-    for ep in range(0, num_episodes):
+    for iteration in range(args.iterations)
+        learning_dataset.clear()
         p_loss = [[] for _ in range(num_agents)]
         d_loss = [[] for _ in range(num_agents)]
-        obs_n = env.reset()
-        episode_r_n = [0. for _ in range(num_agents)]
-        run_policy_steps = 0
-        for step in range(0, max_episode_len):
-            total_step += 1
-            run_policy_steps += 1
+        # sample interations
+        for ep in range(args.train_episodes):
+            obs_n = env.reset()
+            episode_r_n = [0. for _ in range(num_agents)]
+            run_policy_steps = 0
+            for step in range(args.max_episode_len):
+                total_step += 1
+                run_policy_steps += 1
 
-            if args.render:
-                env.render(mode=None)
-            act_n = maiail.act(obs_n)
-            next_obs_n, reward_n, done_n, info_n = env.step(act_n)
-            observations_n.append(obs_n)
-            actions_n.append(act_n)
-            done = all(done_n) 
+                if args.render:
+                    env.render(mode=None)
 
+                act_n = maiail.act(obs_n)
+                next_obs_n, reward_n, done_n, info_n = env.step(act_n)
 
-            if done:
-                continue
+                flag = learning_dataset.push(obs_n, act_n)
 
-            obs_n = next_obs_n
-            episode_r_n = list(map(operator.add, episode_r_n, reward_n))
-        print("\n--- episode-{} | [reward]: {}".format(ep, reward))
-    epochs = len(act_n_E[0]) / batch_size 
-    
-    if not is_evaluate:
-        for iteration in range(args.iterations):  # episode
-            loss = [[] for _ in range(num_agents)]
+                done = all(done_n) 
+
+                if done:
+                    continue
+
+                obs_n = next_obs_n
+                episode_r_n = list(map(operator.add, episode_r_n, reward_n))
+                
+            print("\n--- episode-{} | [reward]: {}".format(ep, reward))
+            if not flag:
+                break
+        
+        if not is_evaluate:
+            if (ep+1) % args.save_interval == 0:
+                maiail.save(args.save_dir)
+            p_loss, c_loss = [[] for _ in range(num_agents)], [[] for _ in range(num_agents)]
             # shuffle dataset
-            indices = list(range(len(act_n_E[0])))
-            random.shuffle(indices)
-            obs_n = obs_n_E[indices]
-            act_n = act_n_E[indices]]
+            expert_dataset.shuffle()
             # train
             for epoch in range(epochs):
                 # select sample indices in [low, high)

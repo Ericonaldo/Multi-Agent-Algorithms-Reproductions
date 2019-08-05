@@ -62,6 +62,7 @@ if __name__ == '__main__':
 
     num_agents = min(args.num_agents, env.n)
     bc = MABehavioralCloning(sess, env, args.exp_name, num_agents, args.batch_size, args.lr)
+    dataset = Dataset(num_agents, args.batch_size)
 
     if not is_evaluate:
         # initialize summary
@@ -90,28 +91,21 @@ if __name__ == '__main__':
         bc.load(load_dir, epoch=args.load_epoch)
 
     # ======================================== main loop ======================================== #
-    obs_n_E = np.genfromtxt('interactions/observations.csv') # [len, n]
-    act_n_E = np.genfromtxt('interactions/actions.csv', dtype=np.int32) # [len, n]
-
     batch_size = args.batch_size
-    start_time = time.time()
+    t_start = time.time()
     total_step = 0
     epochs = len(act_n_E[0]) / batch_size 
     if not is_evaluate:
         for iteration in range(args.iterations):  # episode
             loss = [[] for _ in range(num_agents)]
             # shuffle dataset
-            indices = list(range(len(act_n_E[0])))
-            random.shuffle(indices)
-            obs_n = obs_n_E[indices]
-            act_n = act_n_E[indices]]
+            dataset.shuffule()
             # train
             for epoch in range(epochs):
-                # select sample indices in [low, high)
-                batch_start_ind = epoch*batch_size
-                batch_end_ind = epoch*batch_size+batch_size-1
+                # select sampls
+                batch_obs_n, batch_act_n = dataset.next()
 
-                info_n = bc.train(obs=obs_n, act=act_n)
+                info_n = bc.train(obs=batch_obs_n, act=batch_act_n)
                 loss = map(lambda x, y: y + [x], info_n['loss'], loss)
 
             if (iteration+1) % args.interval == 0:

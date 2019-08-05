@@ -108,6 +108,6 @@ if __name__ == '__main__':
         if not flag:
             break
 
-    dataset.save(args.data_dir)
+    dataset.save_data(args.data_dir)
     env.close()
     sess.close()
