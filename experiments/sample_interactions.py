@@ -73,8 +73,12 @@ if __name__ == '__main__':
 
     num_agents = min(args.num_agents, env.n)
 
-    maddpg = MADDPG(sess, env, args.exp_name, num_agents, args.batch_size, args.actor_lr, args.critic_lr, args.gamma,
-                        args.tau)
+    maddpg = MADDPG(sess, env, args.exp_name, num_agents, args.batch_size, args.actor_lr, args.critic_lr, args.gamma, args.tau)
+    dataset = Dataset(args.batch_size, num_agents)
+
+    maddpg.init()
+    load_dir = args.load_dir + args.scenario
+    maddpg.load(load_dir, epoch=args.load_epoch)
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())

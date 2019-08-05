@@ -44,6 +44,42 @@ class Buffer:
     def capacity(self):
         return self._capacity
 
+class Dataset(object):
+    def __init__(self, batch_size, agent_num, capacity=65536):
+        self.agent_num = agent_num
+        self._capacity = capacity
+        self._size = 0
+        self._observations = [[] for _ in range(agent_num)]
+        self._actions = [[] for _ in range(agent_num)]
+        self._point = 0
+        self.batch_size = batch_size
+
+    def __len__(self):
+        return self._size
+
+    def push(self, obs_n, act_n):
+        if self._size<self._capacity:
+            self._observations = list(map(lambda x, y: y + [x], obs_n, self._observations))
+            self._actions = list(map(lambda x, y: y + [x], act_n, self._actions))
+        
+        self._size = min(self.size+1, self._capacity)
+        
+        return self._size<self._capacity
+
+    def shuffle(self):
+        indices = list(range(self._size)) 
+        self._observations = map(lambda x, y: x[y], self._observations, indices)
+        self._actions = map(lambda x, y: x[y], self._actions, indices)
+        self._point = 0
+
+    def next(self, batch_size):
+        batch_obs_n = map(lambda x, y: x[y:y+batch_size], self._observations, point)
+        batch_act_n = map(lambda x, y: x[y:y+batch_size], self._actions, point)
+        return batch_obs_n, batch_act_n
+
+    def save(self, save_dir):
+
+
 
 class BaseModel(object):
     def __init__(self, name):
