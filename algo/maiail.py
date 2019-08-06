@@ -26,6 +26,7 @@ class Discriminator(BaseModel):
         self._train_op = None
 
         self.act_dim = flatten(self._action_space)
+        self.scope = tf.get_variable_scope().name
 
         self.expert_obs = tf.placeholder(dtype=tf.float32, shape=[None] + self.observation_space)
         self.expert_act = tf.placeholder(dtype=tf.int32, shape=[None])
@@ -49,6 +50,8 @@ class Discriminator(BaseModel):
             grad_vars = optimizer.compute_gradients(self._loss, self.e_variables)
             self._train_op = optimizer.apply_gradients(grad_vars)
 
+        self.rewards = tf.log(tf.clip_by_value(prob_2, 1e-10, 1))
+
     def _construct(self, input_ph, norm=False):
         l1 = tf.layers.dense(inputs=input_ph, units=100, activation=tf.nn.leaky_relu, name='l1')
         if norm: l1 = tc.layers.layer_norm(l1)
@@ -64,80 +67,87 @@ class Discriminator(BaseModel):
 
         return loss
 
+    def get_reward(self, obs, act):
+        feed_dict = {self.agent_obs: obs, self.act: act}
+        reward = self.sess.run(self.reward, feed_dict=feed_dict)
+        
+        return reward
+
+    @property
+    def trainable_variables(self):
+        return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.scope)
 
 class MADiscriminator(object):
-    def __init__(self, sess, env, name, expert_dataset, batch_size=512, lr=1e-2, name=None):
+    def __init__(self, sess, env, name, n_agent, expert_dataset, batch_size=512, lr=1e-2, name=None):
         self.name = name
         self.env = env
-
         self.sess = sess
-
+        self.n_agent = n_agent
         self.expert_dataset = expert_dataset
-        self.learning_dataset = Dataset()
-        self.discriminators = []
+        self.learning_dataset = Dataset(n_agent, batch_size)
 
+        self.discriminators = []
         self._loss = None
         self._train_op = None
 
         # Discriminator for each agents
         with tf.variable_scope(self.name):
+            obs_space, act_space = env.observation_space[i].shape, (env.action_space[i].n,)
             for i in range(self.env.n):
                 print("initialize discriminator for agent {} ...".format(i))
-                obs_space, act_space = env.observation_space[i].shape, (env.action_space[i].n,)
                 with tf.variable_scope("dicriminator_{}_{}".format(name, i)):
                     self.dicriminators.append(Discriminator(self.sess, state_space=obs_space, act_space=act_space, batch_size=batch_size, lr=lr, name=name, agent_id=i))
 
 
     def get_reward(self, obs_n, act_n):
-        #TODO
-        reward = sess.run(feed_dict=xx)
+        reward_n = [None] * self.n_agent
+        for i in range(self.n_agent):
+            reward[i] = self.discriminators[i].get_reward(obs_n[i], act_n[i])
         return reward_n
 
-    def store_data(self, obs_n, act_n):
+    def store_dataset(self, obs_n, act_n):
         """
         Restore state-action dataset of learning agents.
         """
         return self.learning_dataset.push(obs_n, act_n)
 
+    def clear_data(self):
+        self.learning_dataset.clear()
+
     def train(self):
+        loss = [0.0] * self.n_agent
         train_epochs = len(learning_dataset) // self.batch_size
         # shuffle dataset
         self.expert_dataset.shuffle()
         self.learning_dataset.shuffle()
         # train
         for epoch in range(train_epochs):
-            feed_dict = dict()
-            feed_dict.update()
-            loss, _ = self.sess.run([self._loss, self._train_op], feed_dict=feed_dict)
-
+            
         return loss
 
 class MAIAIL:
-    def __init__(self, sess, env, name, n_agent, batch_size=512, p_lr=1e-2, d_lr=1e-2, gamma=0.99, tau=0.01, memory_size=10**4):
+    def __init__(self, sess, env, name, n_agent, expert_dataset, batch_size=512, p_lr=1e-2, d_lr=1e-2, gamma=0.99, tau=0.01, memory_size=10**4):
         self.name = name
         self.sess = sess
         self.env = env
         self.n_agent = n_agent
+        self.batch_size = batch_size
 
         self.maddpg = None # agents 
         self.madcmt = None # discriminators
-        self.action_dims = []
-        self.batch_size = batch_size
         obs_space, act_space = env.observation_space[i].shape, (env.action_space[i].n,)
 
         # == Construct Network for Each Agent ==
         # Policy
         with tf.variable_scope(self.name):
             print("initialize policy agents ...".format(i))
-            with tf.variable_scope("policy_{}".format(name)):
-                policy_name = "maddpg"
-                self.maddpg = MADDPG(sess, env, name=policy_name, n_agent, batch_size, actor_lr=p_lr, critic_lr = p_lr, gamma=gamma, tau=tau, memory_size=memory_size)
+            policy_name = "maddpg"
+            self.maddpg = MADDPG(sess, env, name=policy_name, n_agent, batch_size, actor_lr=p_lr, critic_lr=p_lr, gamma=gamma, tau=tau, memory_size=memory_size)
 
         # Discriminator
-        with tf.variable_scope(self.name):
             print("initialize discriminators ...".format(i))
-            discri_name = "madiscriminator"
-            self.madcmt = MADiscriminator(self.sess, env, name=discri_name, n_agent, batch_size, lr=d_lr)
+            discri_name = "ma-discriminator"
+            self.madcmt = MADiscriminator(self.sess, env, name=discri_name, n_agent, expert_dataset, batch_size, lr=d_lr)
 
     def init(self):
         self.sess.run(tf.global_variables_initializer())
@@ -187,7 +197,31 @@ class MAIAIL:
         for _ in range(2): # train Discriminators 2 times
             d_loss = self.madcmt.train()
 
+        # add reward to maddpg's replay buffer
+        buffer_data = maddpg.replay_buffer.get_data()
+        batch_obs_n = [None for _ in range(self.n_agent)]
+        batch_act_n = [None for _ in range(self.n_agent)]
+        for i in range(self.n_agent):
+            batch_obs_n[i] = list(map(lambda x:x[0], buffer_data[i]))
+            batch_act_n[i] = list(map(lambda x:x[1], buffer_data[i]))
+        reward_n = madcmt.get_reward(batch_obs_n, batch_act_n)
+        for i in range(self.n_agent):
+            for j in range(len(reward_n[i])):
+                buffer_data[i][j] = Transition(buffer_data[i][j][0], buffer_data[i][j][1], buffer_data[i][j][2], reward_n[i][j], buffer_data[i][j][4])
+            # tmp = zip(*zip(*buffer_data[i]))
+            # buffer_data[i] = list(map(lambda x,y:Transition(x[0], x[1], x[2], y, x[4]), tmp, reward_n[i]))
+        maddpg.replay_buffer.set_data(buffer_data)
+
         for _ in range(6): # train policy 6 times
             a_loss, c_loss = self.maddpg.train().values()
 
+        self.maddpg.clear_buffer()
+        self.madcmt.clear_dataset()
+
         return {'d_loss': d_loss, '(policy)a_loss': a_loss, '(policy)c_loss': c_loss} 
+
+    def store_data(self, state_n, action_n, next_state_n, done_n):
+        flag1 = self.maddpg.store_trans(state_n, action_n, next_state_n, np.zeros((n, 1)), done_n)
+        flag2 = self.madcmt.store_dataset(state_n, action_n)
+
+        return (flag1 or flag2)

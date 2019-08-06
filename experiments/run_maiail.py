@@ -63,10 +63,10 @@ if __name__ == '__main__':
     sess = tf.Session(config=config)
 
     num_agents = min(args.num_agents, env.n)
-    maiail = MAIAIL(sess, env, args.exp_name, num_agents, args.batch_size, args.lr, args.gamma)
-    expert_dataset = Dataset(num_agents, args.batch_size)
-    learning_dataset = Dataset(num_agents, args.batch_size)
     expert_dataset.load_data(args.data_dir)
+    # learning_dataset = Dataset(num_agents, args.batch_size)
+    maiail = MAIAIL(sess, env, args.exp_name, num_agents, expert_dataset, args.batch_size, args.lr, args.gamma)
+    expert_dataset = Dataset(num_agents, args.batch_size)
 
     if not is_evaluate:
         # initialize summary
@@ -122,7 +122,6 @@ if __name__ == '__main__':
     observations_n = []
     actions_n = []
     for iteration in range(args.iterations)
-        learning_dataset.clear()
         # sample interations
         for ep in range(args.train_episodes):
             obs_n = env.reset()
@@ -138,7 +137,7 @@ if __name__ == '__main__':
                 act_n = maiail.act(obs_n)
                 next_obs_n, reward_n, done_n, info_n = env.step(act_n)
 
-                flag = learning_dataset.push(obs_n, act_n)
+                flag = maiail.store_data(obs_n, act_n, next_obs_n, done_n)
 
                 done = all(done_n) 
 
@@ -154,16 +153,13 @@ if __name__ == '__main__':
         
         if not is_evaluate:
             # p_loss = [[] for _ in range(num_agents)]
-            d_loss = [[] for _ in range(num_agents)]
-            a_loss, c_loss = [[] for _ in range(num_agents)], [[] for _ in range(num_agents)]
+            # d_loss = [[] for _ in range(num_agents)]
+            # a_loss, c_loss = [[] for _ in range(num_agents)], [[] for _ in range(num_agents)]
 
-                p_loss = map(lambda x, y: y + [x], info_n['p_loss'], p_loss)
-                d_loss = map(lambda x, y: y + [x], info_n['d_loss'], d_loss)
-
-            # p_loss = list(map(lambda x: round(sum(x) / len(x), 3), p_loss))
-            d_loss = list(map(lambda x: round(sum(x) / len(x), 3), d_loss))
-            a_loss = list(map(lambda x: round(sum(x) / len(x), 3), d_loss))
-            c_loss = list(map(lambda x: round(sum(x) / len(x), 3), d_loss))
+            # p_loss = map(lambda x, y: y + [x], info_n['p_loss'], p_loss)
+            a_loss = map(lambda x, y: y + [x], info_n['a_loss'], a_loss)
+            c_loss = map(lambda x, y: y + [x], info_n['c_loss'], c_loss)
+            d_loss = map(lambda x, y: y + [x], info_n['d_loss'], d_loss)
 
             feed_dict = dict()
             # feed_dict.update(zip(summary_dict['p_loss'], p_loss))

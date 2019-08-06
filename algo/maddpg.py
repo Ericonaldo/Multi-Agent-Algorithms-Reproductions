@@ -5,56 +5,11 @@ import tensorflow as tf
 import numpy as np
 import tensorflow.contrib as tc
 
-from common.utils import Buffer, Transition
+from common.utils import BunchBuffer, Transition
 from common.utils import flatten, softmax
 from common.utils import BaseModel
 
 # This MADDPG assumes all actions are discret
-
-class BunchBuffer(Buffer):
-    def __init__(self, n_agent, capacity):
-        super().__init__(capacity)
-
-        self.n_agent = n_agent
-        self._data = [[] for _ in range(self.n_agent)]
-        self._size = 0
-
-    def __len__(self):
-        return self._size
-
-    def push(self, *args):
-        """ Append coming transition into inner dataset
-
-        :param args: ordered tuple (state, action, next_state, reward, done)
-        """
-
-        for i, (state, action, next_state, reward, done) in enumerate(zip(*args)):
-            if len(self._data[i]) < self._capacity:
-                self._data[i].append(None)
-
-            self._data[i][self._flag] = Transition(state, action, next_state, reward, done)
-        self._flag = (self._flag + 1) % self._capacity
-        self._size = min(self._size + 1, self._capacity)
-
-    def sample(self, batch_size):
-        """ Sample mini-batch data with given size
-
-        :param batch_size: int, indicates the size of mini-batch
-        :return: a list of batch data for N agents
-        """
-
-        if self._size < batch_size:
-            return None
-
-        samples = [None for _ in range(self.n_agent)]
-
-        random.seed(a=self._flag)
-        for i in range(self.n_agent):
-            tmp = random.sample(self._data[i], batch_size)
-            samples[i] = Transition(*zip(*tmp))
-
-        return samples
-
 
 class Actor(BaseModel):
     def __init__(self, sess, state_space, act_space, lr=1e-2, tau=0.01, name=None, agent_id=None):
@@ -288,7 +243,7 @@ class MADDPG(object):
         self.critics = []  # hold all Critics
         self.actions_dims = []  # record the action split for gradient apply
 
-        self.replay_buffer = BunchBuffer(n_agent, memory_size)
+        self.replay_buffer = BunchBuffer(n_agent, memory_size, batch_size)
         self.batch_size = batch_size
 
         # == Construct Network for Each Agent ==
@@ -346,7 +301,10 @@ class MADDPG(object):
         return res
 
     def store_trans(self, state_n, action_n, next_state_n, reward_n, done_n):
-        self.replay_buffer.push(state_n, action_n, next_state_n, reward_n, done_n)
+        return self.replay_buffer.push(state_n, action_n, next_state_n, reward_n, done_n)
+
+    def clear_buffer(self):
+        self.replay_buffer.clear()
 
     def act(self, obs_set):
         """ Accept a observation list, return action list of all agents. """
@@ -472,7 +430,7 @@ class MADDPG(object):
         mean_a_loss, mean_c_loss = [0.] * self.n_agent, [0.] * self.n_agent
 
         for i in range(n_batch):
-            batch_list = self.replay_buffer.sample(self.batch_size)
+            batch_list = self.replay_buffer.sample()
             a_loss, c_loss = self.train_step(batch_list)
 
             mean_a_loss = map(operator.add, mean_a_loss, a_loss)

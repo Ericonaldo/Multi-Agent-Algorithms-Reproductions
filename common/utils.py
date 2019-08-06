@@ -15,10 +15,11 @@ Transition = namedtuple("Transition", "state, action, next_state, reward, done")
 
 
 class Buffer:
-    def __init__(self, capacity):
+    def __init__(self, capacity, batch_size):
         self._data = []
         self._capacity = capacity
         self._flag = 0
+        self.batch_size = batch_size
 
     def __len__(self):
         return len(self._data)
@@ -33,7 +34,7 @@ class Buffer:
         self._flag = (self._flag + 1) % self._capacity
 
     def sample(self, batch_size):
-        if len(self._data) < batch_size:
+        if len(self._data) < self.batch_size:
             return None
 
         samples = random.sample(self._data, batch_size)
@@ -43,6 +44,60 @@ class Buffer:
     @property
     def capacity(self):
         return self._capacity
+
+class BunchBuffer(Buffer):
+    def __init__(self, n_agent, capacity, batch_size):
+        super().__init__(capacity, batch_size)
+
+        self.n_agent = n_agent
+        self._data = [[] for _ in range(self.n_agent)]
+        self._size = 0
+
+    def __len__(self):
+        return self._size
+
+    def clear(self):
+        self._data = [[] for _ in range(self.n_agent)]
+        self._size = 0
+
+    def push(self, *args):
+        """ Append coming transition into inner dataset
+
+        :param args: ordered tuple (state, action, next_state, reward, done)
+        """
+
+        for i, (state, action, next_state, reward, done) in enumerate(zip(*args)):
+            if self._size < self._capacity:
+                self._data[i].append([Transition(state, action, next_state, reward, done)])
+
+        self._size = min(self._size + 1, self._capacity)
+
+        return self._size < self.capacity
+
+    def get_data(self):
+        return self._data
+
+    def set_data(self, data):
+        self._data = data
+
+    def sample(self, batch_size):
+        """ Sample mini-batch data with given size
+
+        :param batch_size: int, indicates the size of mini-batch
+        :return: a list of batch data for N agents
+        """
+
+        if self._size < self.batch_size:
+            return None
+
+        samples = [None for _ in range(self.n_agent)]
+
+        random.seed(a=self._flag)
+        for i in range(self.n_agent):
+            tmp = random.sample(self._data[i], self.batch_size)
+            samples[i] = Transition(*zip(*tmp))
+
+        return samples
 
 class Dataset(object):
     def __init__(self, agent_num, batch_size=512, capacity=65536):
