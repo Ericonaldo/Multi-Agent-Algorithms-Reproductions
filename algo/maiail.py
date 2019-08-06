@@ -47,7 +47,7 @@ class Discriminator(BaseModel):
             loss = loss_expert + loss_agent
             self._loss = -loss
             optimizer = tf.train.AdamOptimizer(lr)
-            grad_vars = optimizer.compute_gradients(self._loss, self.e_variables)
+            grad_vars = optimizer.compute_gradients(self._loss, self.trainable_variables)
             self._train_op = optimizer.apply_gradients(grad_vars)
 
         self.rewards = tf.log(tf.clip_by_value(prob_2, 1e-10, 1))
@@ -98,7 +98,6 @@ class MADiscriminator(object):
                 with tf.variable_scope("dicriminator_{}_{}".format(name, i)):
                     self.dicriminators.append(Discriminator(self.sess, state_space=obs_space, act_space=act_space, batch_size=batch_size, lr=lr, name=name, agent_id=i))
 
-
     def get_reward(self, obs_n, act_n):
         reward_n = [None] * self.n_agent
         for i in range(self.n_agent):
@@ -138,13 +137,13 @@ class MAIAIL:
         obs_space, act_space = env.observation_space[i].shape, (env.action_space[i].n,)
 
         # == Construct Network for Each Agent ==
-        # Policy
         with tf.variable_scope(self.name):
+            # Policy
             print("initialize policy agents ...".format(i))
             policy_name = "maddpg"
             self.maddpg = MADDPG(sess, env, name=policy_name, n_agent, batch_size, actor_lr=p_lr, critic_lr=p_lr, gamma=gamma, tau=tau, memory_size=memory_size)
 
-        # Discriminator
+            # Discriminator
             print("initialize discriminators ...".format(i))
             discri_name = "ma-discriminator"
             self.madcmt = MADiscriminator(self.sess, env, name=discri_name, n_agent, expert_dataset, batch_size, lr=d_lr)
@@ -215,6 +214,7 @@ class MAIAIL:
         for _ in range(6): # train policy 6 times
             a_loss, c_loss = self.maddpg.train().values()
 
+        # clear buffer and dataset
         self.maddpg.clear_buffer()
         self.madcmt.clear_dataset()
 
