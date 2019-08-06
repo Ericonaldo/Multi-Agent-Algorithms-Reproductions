@@ -85,6 +85,7 @@ class MABehavioralCloning:
         self.env = env
         self.n_agent = n_agent
 
+        self.actors = []
         self.action_dims = []
         self.batch_size = batch_size
 

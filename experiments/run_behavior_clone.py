@@ -94,7 +94,7 @@ if __name__ == '__main__':
     batch_size = args.batch_size
     t_start = time.time()
     total_step = 0
-    epochs = len(act_n_E[0]) / batch_size 
+    epochs = len(act_n_E[0]) // batch_size 
     if not is_evaluate:
         for iteration in range(args.iterations):  # episode
             loss = [[] for _ in range(num_agents)]
@@ -108,9 +108,9 @@ if __name__ == '__main__':
                 info_n = bc.train(obs=batch_obs_n, act=batch_act_n)
                 loss = map(lambda x, y: y + [x], info_n['loss'], loss)
 
-            if (iteration+1) % args.interval == 0:
+            if (iteration+1) % args.save_interval == 0:
                 bc.save(args.save_dir+args.scenario, ep, args.max_to_keep)
-                print("\n--- epoch-{} | [loss]: {} | [inter-time]: {}".format(ep, loss, round(time.time()-t_start),4)))
+                print("\n---- epoch: {} | [loss]: {} | [inter-time]: {}".format(ep, loss, round(time.time()-t_start),4)))
                 t_start = time.time()
 
             summary_writer.add_summary(summary, iteration)

@@ -74,13 +74,19 @@ if __name__ == '__main__':
         summary_p_loss = [None for _ in range(num_agents)]
         for i in range(num_agents):
             summary_d_loss[i] = tf.placeholder(tf.float32, None)
-            summary_p_loss[i] = tf.placeholder(tf.float32, None)
+            # summary_p_loss[i] = tf.placeholder(tf.float32, None)
+            summary_a_loss[i] = tf.placeholder(tf.float32, None)
+            summary_c_loss[i] = tf.placeholder(tf.float32, None)
 
             tf.summary.scalar('Discriminator-Loss-{}'.format(i), summary_d_loss[i])
-            tf.summary.scalar('Policy-Loss-{}'.format(i), summary_p_loss[i])
+            # tf.summary.scalar('Policy-Loss-{}'.format(i), summary_p_loss[i])
+            tf.summary.scalar('(Policy)Actor-Loss-{}'.format(i), summary_p_loss[i])
+            tf.summary.scalar('(Policy)Critic-Loss-{}'.format(i), summary_p_loss[i])
 
         summary_dict['d_loss'] = summary_d_loss
-        summary_dict['p_loss'] = summary_p_loss
+        # summary_dict['p_loss'] = summary_p_loss
+        summary_dict['a_loss'] = summary_a_loss
+        summary_dict['c_loss'] = summary_c_loss
 
         merged = tf.summary.merge_all()
 
@@ -117,8 +123,6 @@ if __name__ == '__main__':
     actions_n = []
     for iteration in range(args.iterations)
         learning_dataset.clear()
-        p_loss = [[] for _ in range(num_agents)]
-        d_loss = [[] for _ in range(num_agents)]
         # sample interations
         for ep in range(args.train_episodes):
             obs_n = env.reset()
@@ -149,26 +153,33 @@ if __name__ == '__main__':
                 break
         
         if not is_evaluate:
-            if (ep+1) % args.save_interval == 0:
-                maiail.save(args.save_dir)
-            p_loss, c_loss = [[] for _ in range(num_agents)], [[] for _ in range(num_agents)]
-            # shuffle dataset
-            expert_dataset.shuffle()
-            # train
-            for epoch in range(epochs):
-                # select sample indices in [low, high)
-                batch_start_ind = epoch*batch_size
-                batch_end_ind = epoch*batch_size+batch_size-1
+            # p_loss = [[] for _ in range(num_agents)]
+            d_loss = [[] for _ in range(num_agents)]
+            a_loss, c_loss = [[] for _ in range(num_agents)], [[] for _ in range(num_agents)]
 
-                info_n = bc.train(obs=obs_n, act=act_n)
-                loss = map(lambda x, y: y + [x], info_n['loss'], loss)
+                p_loss = map(lambda x, y: y + [x], info_n['p_loss'], p_loss)
+                d_loss = map(lambda x, y: y + [x], info_n['d_loss'], d_loss)
 
-            if (iteration+1) % args.interval == 0:
-                bc.save(args.save_dir+args.scenario, ep, args.max_to_keep)
-                print("\n--- epoch-{} | [loss]: {} | [inter-time]: {}".format(ep, loss, round(time.time()-t_start),4)))
-                t_start = time.time()
+            # p_loss = list(map(lambda x: round(sum(x) / len(x), 3), p_loss))
+            d_loss = list(map(lambda x: round(sum(x) / len(x), 3), d_loss))
+            a_loss = list(map(lambda x: round(sum(x) / len(x), 3), d_loss))
+            c_loss = list(map(lambda x: round(sum(x) / len(x), 3), d_loss))
 
+            feed_dict = dict()
+            # feed_dict.update(zip(summary_dict['p_loss'], p_loss))
+            feed_dict.update(zip(summary_dict['a_loss'], a_loss))
+            feed_dict.update(zip(summary_dict['c_loss'], c_loss))
+            feed_dict.update(zip(summary_dict['d_loss'], d_loss))
+
+            summary = sess.run(merged, feed_dict=feed_dict)
             summary_writer.add_summary(summary, iteration)
+
+            if (iteration+1) % args.save_interval == 0:
+                maiail.save(args.save_dir)
+                print("-----------------------------------------------------------------")
+                print("\n----[iteration]: {} | [p-loss]: {} | [d-loss]: {} | [inter-time]: {}".format(iteration, p_loss, d_loss, round(time.time()-t_start),4)))
+                print("-----------------------------------------------------------------")
+                t_start = time.time()
 
     env.close()
     summary_writer.close()

@@ -57,6 +57,14 @@ class Dataset(object):
     def __len__(self):
         return self._size
 
+    @property
+    def observations(self):
+        return self._observations
+
+    @property
+    def actions(self):
+        return self._actions
+
     def clear(self):
         self._size = 0
         self._observations = [[] for _ in range(agent_num)]
