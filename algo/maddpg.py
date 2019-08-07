@@ -33,15 +33,11 @@ class Actor(BaseModel):
 
         with tf.variable_scope("eval"):
             self._eval_scope = tf.get_variable_scope().name
-            self.eval_net = self._construct(self.act_dim)
-            self._act_prob = tf.nn.softmax(self.eval_net)
-
-            self._act_tf = self._act_prob
+            self._eval_act = self._construct(self.act_dim)
 
         with tf.variable_scope("target"):
             self._target_scope = tf.get_variable_scope().name
-            self.t_out = self._construct(self.act_dim)
-            self.t_policy = tf.nn.softmax(self.t_out)
+            self._target_act = self._construct(self.act_dim)
 
         with tf.name_scope("Update"):  # smooth average update process
             self._update_op = [tf.assign(t_var, e_var) for t_var, e_var in zip(self.t_variables, self.e_variables)]
@@ -57,26 +53,31 @@ class Actor(BaseModel):
 
     @property
     def act_tensor(self):
-        return self._act_tf
+        return self._eval_act
 
     @property
     def obs_tensor(self):
         return self.obs_input
 
     def _construct(self, out_dim, norm=True):
-        l1 = tf.layers.dense(self.obs_input, units=100, activation=tf.nn.relu, name="l1")
+        l1 = tf.layers.dense(self.obs_input, units=128, activation=tf.nn.relu, name="l1")
         if norm: l1 = tc.layers.layer_norm(l1)
 
-        l2 = tf.layers.dense(l1, units=100, activation=tf.nn.relu, name="l2")
+        l2 = tf.layers.dense(l1, units=128, activation=tf.nn.relu, name="l2")
         if norm: l2 = tc.layers.layer_norm(l2)
 
         out = tf.layers.dense(l2, units=out_dim)
+
+        u = tf.random_uniform(tf.shape(out))
+        out = tf.nn.softmax(out - tf.log(-tf.log(u)), axis=-1) # gumble softmax 
 
         return out
 
     def set_optimization(self, q_func):
         with tf.variable_scope("optimization"):
-            self._loss = -tf.reduce_mean(q_func.value)
+            q_loss = -tf.reduce_mean(q_func.value)
+            reg_loss = tf.reduce_mean(tf.square(self._eval_act))
+            self._loss = q_loss + reg_loss * 1e-3
             optimizer = tf.train.AdamOptimizer(self._lr)
             grad_vars = optimizer.compute_gradients(self._loss, self.e_variables)
             self._train_op = optimizer.apply_gradients(grad_vars)
@@ -88,14 +89,14 @@ class Actor(BaseModel):
         self.sess.run(self._soft_update_op)
 
     def act(self, obs):
-        policy_logits = self.sess.run(self._act_tf, feed_dict={self.obs_input: [obs]})
-        return policy_logits[0]
+        act = self.sess.run(self._eval_act, feed_dict={self.obs_input: [obs]})
+
+        return act[0]
 
     def target_act(self, obs): # , one_hot=False):
         """ Return an action id -> integer """
 
-        policy = self.sess.run(self.t_policy, feed_dict={self.obs_input: obs})
-        act = policy
+        act = self.sess.run(self._target_act, feed_dict={self.obs_input: obs})
         
         return act
         # act = np.argmax(policy, axis=1)
@@ -151,7 +152,7 @@ class Critic(BaseModel):
                                     in zip(self.t_variables, self.e_variables)]
 
         with tf.variable_scope("Optimization"):
-            weight_decay = tf.add_n([self.L2 * tf.nn.l2_loss(var) for var in self.e_variables])
+            # weight_decay = tf.add_n([self.L2 * tf.nn.l2_loss(var) for var in self.e_variables])
 
             self.t_q_input = tf.placeholder(tf.float32, shape=(None, 1), name="target-input")
             # self._loss = 0.5 * tf.reduce_mean(tf.square(self.t_q_input - self.e_q)) + weight_decay
@@ -182,10 +183,10 @@ class Critic(BaseModel):
         return self.multi_act_phs
 
     def _construct(self, input_ph, norm=True):
-        l1 = tf.layers.dense(input_ph, units=100, activation=tf.nn.relu, name="l1")
+        l1 = tf.layers.dense(input_ph, units=128, activation=tf.nn.relu, name="l1")
         if norm: l1 = tc.layers.layer_norm(l1)
 
-        l2 = tf.layers.dense(l1, units=100, activation=tf.nn.relu, name="l2")
+        l2 = tf.layers.dense(l1, units=128, activation=tf.nn.relu, name="l2")
         if norm: l2 = tc.layers.layer_norm(l2)
 
         out = tf.layers.dense(l2, units=1, name="Q")
@@ -221,8 +222,8 @@ class Critic(BaseModel):
         :return: critic loss, float
         """
 
-    feed_dict[self.t_q_input] = target_q_values
-    _, loss = self.sess.run([self._train_op, self._loss], feed_dict=feed_dict)
+        feed_dict[self.t_q_input] = target_q_values
+        _, loss = self.sess.run([self._train_op, self._loss], feed_dict=feed_dict)
 
         self.soft_update()
 
@@ -312,11 +313,7 @@ class MADDPG(object):
         for i, (obs, agent) in enumerate(zip(obs_set, self.actors)):
             n = self.actions_dims[i]
 
-            logits = agent.act(obs)
-            noise = np.random.gumbel(size=np.shape(logits)) # gumbel softmax
-            logits += noise
-
-            policy = softmax(logits)
+            policy = agent.act(obs)
 
             # actions.append([np.random.choice(n, p=policy)])
             actions.append(policy)
@@ -335,7 +332,7 @@ class MADDPG(object):
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
         else:
-            tf.gfile.DeleteRecursively(log_dir)
+            tf.gfile.DeleteRecursively(dir_name)
         model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.name)
         #for i in model_vars:
         #    print(i)

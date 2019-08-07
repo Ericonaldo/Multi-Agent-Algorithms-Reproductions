@@ -54,6 +54,7 @@ class BunchBuffer(Buffer):
         self.n_agent = n_agent
         self._data = [[] for _ in range(self.n_agent)]
         self._size = 0
+        self._next_idx = 0
 
     def __len__(self):
         return self._size
@@ -69,9 +70,12 @@ class BunchBuffer(Buffer):
         """
 
         for i, (state, action, next_state, reward, done) in enumerate(zip(*args)):
-            if self._size < self._capacity:
+            if self._next_idx >= self._size:
                 self._data[i].append(Transition(state, action, next_state, reward, done))
+            else:
+                self._data[i][self._next_idx] = Transition(state, action, next_state, reward, done)
 
+        self._next_idx = (self._next_idx + 1) % self._capacity
         self._size = min(self._size + 1, self._capacity)
 
         return self._size < self.capacity
