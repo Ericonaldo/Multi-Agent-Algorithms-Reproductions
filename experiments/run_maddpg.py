@@ -179,11 +179,11 @@ if __name__ == '__main__':
 
             if (ep+1) % args.save_interval == 0:
                 maddpg.save(args.save_dir+args.scenario, ep+1, args.max_to_keep)
-                print("\n--- episode-{} | [a-loss]: {} | [c-loss]: {} | [mean-reward]: {} | [inter-time]: {}".format(ep+1, a_loss, c_loss, np.mean(episode_r_all, axis=0), round(time.time()-t_start),4))
+                print("\n--- episode-{} | [a-loss]: {} | [c-loss]: {} | [mean-reward]: {} | [inter-time]: {}".format(ep+1, a_loss, c_loss, np.mean(episode_r_all[-args.save_interval:], axis=0), round(time.time()-t_start),4))
                 t_start = time.time()
 
         if is_evaluate:
-            print("\n--- episode-{} | [mean-reward]: {} | [inter-time]: {}".format(ep+1, np.mean(episode_r_all, axis=0), round(time.time()-t_start),4))
+            print("\n--- episode-{} | [mean-reward]: {} | [inter-time]: {}".format(ep+1, np.mean(episode_r_all[-args.save_interval:], axis=0), round(time.time()-t_start),4))
             t_start = time.time()
            
     env.close()

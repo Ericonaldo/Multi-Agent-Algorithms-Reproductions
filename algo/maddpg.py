@@ -221,8 +221,8 @@ class Critic(BaseModel):
         :return: critic loss, float
         """
 
-        feed_dict[self.t_q_input] = target_q_values
-        _, loss = self.sess.run([self._train_op, self._loss], feed_dict=feed_dict)
+    feed_dict[self.t_q_input] = target_q_values
+    _, loss = self.sess.run([self._train_op, self._loss], feed_dict=feed_dict)
 
         self.soft_update()
 
@@ -313,8 +313,8 @@ class MADDPG(object):
             n = self.actions_dims[i]
 
             logits = agent.act(obs)
-            # noise = np.random.gumbel(size=np.shape(logits)) # gumbel softmax
-            # logits += noise
+            noise = np.random.gumbel(size=np.shape(logits)) # gumbel softmax
+            logits += noise
 
             policy = softmax(logits)
 
@@ -334,6 +334,8 @@ class MADDPG(object):
         dir_name = os.path.join(dir_path, self.name)
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
+        else:
+            tf.gfile.DeleteRecursively(log_dir)
         model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.name)
         #for i in model_vars:
         #    print(i)
