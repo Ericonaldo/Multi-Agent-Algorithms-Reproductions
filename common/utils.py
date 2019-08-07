@@ -95,8 +95,9 @@ class BunchBuffer(Buffer):
         samples = [None for _ in range(self.n_agent)]
 
         random.seed(time.time())
+        ind = random.sample(range(self._size), self.batch_size)
         for i in range(self.n_agent):
-            tmp = random.sample(self._data[i], self.batch_size)
+            tmp = [self._data[i][j] for j in ind]
             samples[i] = Transition(*zip(*tmp))
 
         return samples
