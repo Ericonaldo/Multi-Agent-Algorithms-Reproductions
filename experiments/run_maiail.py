@@ -64,9 +64,9 @@ if __name__ == '__main__':
 
     num_agents = min(args.num_agents, env.n)
     expert_dataset.load_data(args.data_dir)
-    # learning_dataset = Dataset(num_agents, args.batch_size)
-    maiail = MAIAIL(sess, env, args.exp_name, num_agents, expert_dataset, args.batch_size, args.lr, args.gamma)
-    expert_dataset = Dataset(num_agents, args.batch_size)
+    # learning_dataset = Dataset(args.scenario, num_agents, args.batch_size)
+    maiail = MAIAIL(sess, env, args.scenario, args.exp_name, num_agents, expert_dataset, args.batch_size, args.lr, args.gamma)
+    expert_dataset = Dataset(args.scenario, num_agents, args.batch_size)
 
     if not is_evaluate:
         # initialize summary

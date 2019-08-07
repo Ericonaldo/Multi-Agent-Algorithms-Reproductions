@@ -4,6 +4,7 @@ from functools import reduce
 from collections import namedtuple
 import random
 import time
+import os
 
 
 try:
@@ -107,8 +108,9 @@ class BunchBuffer(Buffer):
         return samples
 
 class Dataset(object):
-    def __init__(self, agent_num, batch_size=512, capacity=65536):
+    def __init__(self, name, agent_num, batch_size=512, capacity=65536):
         self.agent_num = agent_num
+        self._name = name
         self._capacity = capacity
         self._size = 0
         self._observations = [[] for _ in range(agent_num)]
@@ -138,7 +140,7 @@ class Dataset(object):
             self._observations = list(map(lambda x, y: y + [x], obs_n, self._observations))
             self._actions = list(map(lambda x, y: y + [x], act_n, self._actions))
         
-        self._size = min(self.size+1, self._capacity)
+        self._size = min(self._size+1, self._capacity)
         
         return self._size<self._capacity
 
@@ -161,24 +163,34 @@ class Dataset(object):
         return batch_obs_n, batch_act_n
 
     def save_data(self, save_dir):
-        obs_path = save_dir + "expert_obs.csv"
-        act_path = save_dir + "expert_act.csv"
-        try:
-            with open(obs_path, 'ab') as f_handle:
-                np.savetxt(f_handle, data, fmt='%s')
-            with open(act_path, 'ab') as f_handle:
-                np.savetxt(f_handle, data, fmt='%s')
-        except FileNotFoundError:
-            with open(obs_path, 'wb') as f_handle:
-                np.savetxt(f_handle, data, fmt='%s')
-            with open(act_path, 'wb') as f_handle:
-                np.savetxt(f_handle, data, fmt='%s')
+        save_dir = os.path.join(save_dir, self._name)
+        print(save_dir)
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        for i in range(self.agent_num):
+            obs_path = save_dir + "/expert_obs-{}.csv".format(i)
+            act_path = save_dir + "/expert_act-{}.csv".format(i)
+            try:
+                with open(obs_path, 'ab') as f_handle:
+                    np.savetxt(f_handle, self._observations[i], fmt='%s')
+                with open(act_path, 'ab') as f_handle:
+                    np.savetxt(f_handle, self._actions[i], fmt='%s')
+            except FileNotFoundError:
+                with open(obs_path, 'wb') as f_handle:
+                    np.savetxt(f_handle, self._observations[i], fmt='%s')
+                with open(act_path, 'wb') as f_handle:
+                    np.savetxt(f_handle, self._actions[i], fmt='%s')
 
     def load_data(self, load_dir):
-        obs_path = load_dir + "expert_obs.csv"
-        act_path = load_dir + "expert_act.csv"
-        self._observations = np.genfromtxt(obs_path)
-        self._actions = np.genfromtxt(act_path)
+        load_dir = os.path.join(load_dir, self._name)
+        if not os.path.exists(load_dir):
+            print("Load dir is not exist!")
+            exit(0)
+        for i in range(self.agent_num):
+            obs_path = load_dir + "/expert_obs-{}.csv".format(i)
+            act_path = load_dir + "/expert_act-{}.csv".format(i)
+            self._observations[i] = np.genfromtxt(obs_path)
+            self._actions[i] = np.genfromtxt(act_path)
 
 
 class BaseModel(object):

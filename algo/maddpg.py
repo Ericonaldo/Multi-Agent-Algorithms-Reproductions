@@ -331,7 +331,7 @@ class MADDPG(object):
 
         return actions
 
-    def save(self, dir_path, epoch, max_to_keep):
+    def save(self, dir_path, epoch, max_to_keep=10):
         """ Save model
         :param dir_path: str, the grandparent directory path for model saving
         :param epoch: int, global step
@@ -352,7 +352,7 @@ class MADDPG(object):
         save_path = saver.save(self.sess, dir_name + "/{}".format(self.name), global_step=epoch)
         print("[*] Model saved in file: {}".format(save_path))
 
-    def load(self, dir_path, epoch=0):
+    def load(self, dir_path, epoch=None):
         """ Load model from local storage.
 
         :param dir_path: str, the grandparent directory path for model saving
@@ -369,8 +369,12 @@ class MADDPG(object):
         #    print(i)
         #print("sum {} vars".format(len(model_vars)))
         saver = tf.train.Saver(model_vars)
-        file_path = os.path.join(dir_name, "{}-{}".format(self.name, epoch))
-        saver.restore(self.sess, file_path)
+        if epoch is not None:
+            file_path = os.path.join(dir_name, "{}-{}".format(self.name, epoch))
+            saver.restore(self.sess, file_path)
+        else:
+            file_path = dir_name
+            saver.restore(self.sess, tf.train.latest_checkpoint(file_path))
         # print("[!] Load model failed, please check {} exists".format(file_path))
 
     def train_step(self, batch_list):

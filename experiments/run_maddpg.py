@@ -43,7 +43,7 @@ if __name__ == '__main__':
     parser.add_argument("--log_dir", type=str, default="./logs/", help="directory of logging")
     parser.add_argument("--restore", action="store_true", default=False)
     parser.add_argument("--load_dir", type=str, default="./trained_models/", help="directory in which training state and model are loaded")
-    parser.add_argument("--load_epoch", type=int, default=1000, help="the epoch of loaded model")
+    parser.add_argument("--load_epoch", type=int, default=None, help="the epoch of loaded model")
     parser.add_argument("--max_to_keep", type=int, default=10, help="number of models to save")
     # Evaluation
     parser.add_argument("--is_evaluate", action="store_true",default=False, help='is training or evalutaion')

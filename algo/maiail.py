@@ -78,13 +78,13 @@ class Discriminator(BaseModel):
         return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.scope)
 
 class MADiscriminator(object):
-    def __init__(self, sess, env, name, n_agent, expert_dataset, batch_size=512, lr=1e-2, name=None):
+    def __init__(self, sess, env, scenario, name, n_agent, expert_dataset, batch_size=512, lr=1e-2, name=None):
         self.name = name
         self.env = env
         self.sess = sess
         self.n_agent = n_agent
         self.expert_dataset = expert_dataset
-        self.learning_dataset = Dataset(n_agent, batch_size)
+        self.learning_dataset = Dataset(scenario, n_agent, batch_size)
 
         self.discriminators = []
         self._loss = None
@@ -125,7 +125,7 @@ class MADiscriminator(object):
         return loss
 
 class MAIAIL:
-    def __init__(self, sess, env, name, n_agent, expert_dataset, batch_size=512, p_lr=1e-2, d_lr=1e-2, gamma=0.99, tau=0.01, memory_size=10**4):
+    def __init__(self, sess, env, scenario, name, n_agent, expert_dataset, batch_size=512, p_lr=1e-2, d_lr=1e-2, gamma=0.99, tau=0.01, memory_size=10**4):
         self.name = name
         self.sess = sess
         self.env = env
@@ -146,7 +146,7 @@ class MAIAIL:
             # Discriminator
             print("initialize discriminators ...".format(i))
             discri_name = "ma-discriminator"
-            self.madcmt = MADiscriminator(self.sess, env, name=discri_name, n_agent, expert_dataset, batch_size, lr=d_lr)
+            self.madcmt = MADiscriminator(self.sess, env, scenario=scenario, name=discri_name, n_agent, expert_dataset, batch_size, lr=d_lr)
 
     def init(self):
         self.sess.run(tf.global_variables_initializer())

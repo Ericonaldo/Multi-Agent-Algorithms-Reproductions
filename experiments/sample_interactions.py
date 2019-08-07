@@ -12,6 +12,8 @@ sys.path.insert(1, os.path.join(sys.path[0], '../ma_env/multiagent-particle-envs
 import multiagent
 import multiagent.scenarios as scenarios
 from multiagent.environment import MultiAgentEnv
+from common.utils import Dataset
+from algo.maddpg import MADDPG
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 tf.logging.set_verbosity(tf.logging.ERROR)
@@ -45,7 +47,7 @@ if __name__ == '__main__':
     parser.add_argument("--restore", action="store_true", default=False)
     parser.add_argument("--data_dir", type=str, default="./expert_data/", help="directory in which expert interactions are loaded")
     parser.add_argument("--load_dir", type=str, default="./trained_models/", help="directory in which training state and model are loaded")
-    parser.add_argument("--load_epoch", type=int, default=1000, help="the epoch of loaded model")
+    parser.add_argument("--load_epoch", type=int, default=None, help="the epoch of loaded model")
     # Evaluation
     parser.add_argument("--render", action="store_true", default=False, help="do or not render")
     args = parser.parse_args()
@@ -53,9 +55,7 @@ if __name__ == '__main__':
     print('=== Configuration:\n', args)
 
     # =========================== initialize environment =========================== #
-    is_evaluate = args.is_evaluate
-    is_render = args.render or args.is_evaluate
-
+    is_render = args.render    
     scenario = scenarios.load(args.scenario+".py").Scenario()
     world = scenario.make_world()
 
@@ -69,15 +69,16 @@ if __name__ == '__main__':
     # num_agents = min(args.num_agents, env.n)
     num_agents = env.n
 
-    maddpg = MADDPG(sess, env, args.exp_name, num_agents, args.batch_size, args.actor_lr, args.critic_lr, args.gamma, args.tau)
-    dataset = Dataset(num_agents)
+    algo_name = 'maddpg'
+    maddpg = MADDPG(sess, env, algo_name, num_agents)
+    dataset = Dataset(args.scenario, num_agents)
 
     maddpg.init()
     load_dir = args.load_dir + args.scenario
     maddpg.load(load_dir, epoch=args.load_epoch)
 
     # ======================================== main loop ======================================== #
-    num_episodes = args.train_episodes
+    num_episodes = args.episodes
     print("Start Sampling...")
 
     total_step = 0
