@@ -313,8 +313,8 @@ class MADDPG(object):
             n = self.actions_dims[i]
 
             logits = agent.act(obs)
-            noise = np.random.gumbel(size=np.shape(logits)) # gumbel softmax
-            logits += noise
+            # noise = np.random.gumbel(size=np.shape(logits)) # gumbel softmax
+            # logits += noise
 
             policy = softmax(logits)
 
@@ -392,22 +392,25 @@ class MADDPG(object):
             # next_act_clus[i] = np.eye(len(next_act_clus[i]), self.env.action_space[i].n)[next_act_clus[i]]
 
         # train critic
+        feed_dict1 = dict()
+        feed_dict1.update(zip(self.obs_phs, next_state_clus))
+        feed_dict1.update(zip(self.act_phs, next_act_clus))
+
+        feed_dict2 = dict()
+        feed_dict2.update(zip(self.obs_phs, state_clus))
+        feed_dict2.update(zip(self.act_phs, act_clus))
         for i, batch in enumerate(batch_list):
-            feed_dict = dict()
-            feed_dict.update(zip(self.obs_phs, next_state_clus))
-            feed_dict.update(zip(self.act_phs, next_act_clus))
-            target_q = self.critics[i].calculate_next_q(feed_dict).reshape((-1,))
+            target_q = self.critics[i].calculate_next_q(feed_dict1).reshape((-1,))
             target_q = np.array(batch.reward) + (1. - np.array(batch.done)) * target_q * self.gamma
 
-            feed_dict = dict()
-            feed_dict.update(zip(self.obs_phs, state_clus))
-            feed_dict.update(zip(self.act_phs, act_clus))
-            c_loss[i] = self.critics[i].train(target_q.reshape((-1, 1)) ,feed_dict) # state_clus, act_clus)
+            c_loss[i] = self.critics[i].train(target_q.reshape((-1, 1)) ,feed_dict2) # state_clus, act_clus)
 
         # train actor
         for i, batch in enumerate(batch_list):
+            act_phs_i = self.act_phs[:i]+self.act_phs[i+1:]
+            act_clus_i = act_clus[:i]+act_clus[i+1:]
             feed_dict = dict()
-            feed_dict.update(zip(self.act_phs, act_clus))
+            feed_dict.update(zip(self.act_phs_i, act_clus_i))
             feed_dict.update(zip(self.obs_phs, state_clus))
 
             a_loss[i] = self.actors[i].train(feed_dict)

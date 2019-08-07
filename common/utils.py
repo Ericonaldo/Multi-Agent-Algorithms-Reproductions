@@ -125,8 +125,8 @@ class Dataset(object):
 
     def clear(self):
         self._size = 0
-        self._observations = [[] for _ in range(agent_num)]
-        self._actions = [[] for _ in range(agent_num)]
+        self._observations = [[] for _ in range(self.agent_num)]
+        self._actions = [[] for _ in range(self.agent_num)]
         self._point = 0
 
     def push(self, obs_n, act_n):
@@ -141,13 +141,18 @@ class Dataset(object):
     def shuffle(self):
         indices = list(range(self._size)) 
         random.shuffle(indices)
-        self._observations = map(lambda x, y: x[y], self._observations, indices)
-        self._actions = map(lambda x, y: x[y], self._actions, indices)
+        # tmp_o = [[] for _ in range(self.agent_num)]
+        # tmp_a = [[] for _ in range(self.agent_num)]
+        for i in range(self.agent_num):
+            self._observations[i] = [self._observations[i][j] for j in indices]
+            self._actions[i] = [self._actions[i][j] for j in indices]
+        # self._observations = tmp_o
+        # self._actions = tmp_a
         self._point = 0
 
     def next(self):
-        batch_obs_n = map(lambda x, y: x[y:y+self.batch_size], self._observations, point)
-        batch_act_n = map(lambda x, y: x[y:y+self.batch_size], self._actions, point)
+        batch_obs_n = list(map(lambda x: x[self.point:self.point+self.batch_size], self._observations))
+        batch_act_n = list(map(lambda x: x[self.point:self.point+self.batch_size], self._actions))
 
         return batch_obs_n, batch_act_n
 
