@@ -35,7 +35,7 @@ if __name__ == '__main__':
     parser.add_argument("--gamma", type=float, default=0.95, help="discount factor")
     parser.add_argument("--tau", type=float, default=0.01, help='Hyper-parameter for soft update (default=0.01)')
     parser.add_argument("--batch_size", type=int, default=512, help="the batch size to optimize at the same time")
-    parser.add_argument('--memory_size', type=int, default=10**4, help='Memory size (default=10**4)')
+    parser.add_argument('--memory_size', type=int, default=10**6, help='Memory size (default=10**4)')
     # Checkpointing & Logging
     parser.add_argument("--exp_name", type=str, default="maddpg", help="name of the experiment")
     parser.add_argument("--save_interval", type=int, default=400, help='Interval episode for saving model(default=400)')
@@ -70,7 +70,7 @@ if __name__ == '__main__':
   
     num_agents = min(args.num_agents, env.n)
     maddpg = MADDPG(sess, env, args.exp_name, num_agents, args.batch_size, args.actor_lr, args.critic_lr, args.gamma,
-                        args.tau, args.memory_size)
+                        args.tau, args.memory_size, grad_norm_clipping=0.5)
 
     if not is_evaluate:
         # initialize summary

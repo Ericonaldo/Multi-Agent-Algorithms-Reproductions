@@ -12,7 +12,7 @@ from common.utils import BaseModel
 # This MADDPG assumes all actions are discret
 
 class Actor(BaseModel):
-    def __init__(self, sess, state_space, act_space, lr=1e-2, tau=0.01, name=None, agent_id=None):
+    def __init__(self, sess, state_space, act_space, lr=1e-2, tau=0.01, name=None, agent_id=None, grad_norm_clipping=None):
         super().__init__(name)
 
         self._lr = lr
@@ -20,6 +20,7 @@ class Actor(BaseModel):
 
         self.sess = sess
         self.agent_id = agent_id
+        self.grad_norm_clipping = grad_norm_clipping
 
         self._action_space = act_space
         self._observation_space = state_space
@@ -69,7 +70,7 @@ class Actor(BaseModel):
         out = tf.layers.dense(l2, units=out_dim)
 
         u = tf.random_uniform(tf.shape(out))
-        out = tf.nn.softmax(out - tf.log(-tf.log(u)), axis=-1) # gumble softmax 
+        out = tf.nn.softmax(out - tf.log(-tf.log(u)), axis=-1) # gumbel softmax 
 
         return out
 
@@ -79,8 +80,12 @@ class Actor(BaseModel):
             reg_loss = tf.reduce_mean(tf.square(self._eval_act))
             self._loss = q_loss + reg_loss * 1e-3
             optimizer = tf.train.AdamOptimizer(self._lr)
-            grad_vars = optimizer.compute_gradients(self._loss, self.e_variables)
-            self._train_op = optimizer.apply_gradients(grad_vars)
+            gradients = optimizer.compute_gradients(self._loss, self.e_variables)
+            if self.grad_norm_clipping is not None:
+                for i, (grad, var) in enumerate(gradients):
+                    if grad is not None:
+                        gradients[i] = (tf.clip_by_norm(grad, self.grad_norm_clipping), var)
+            self._train_op = optimizer.apply_gradients(gradients)
 
     def update(self):
         self.sess.run(self._update_op)
@@ -113,11 +118,12 @@ class Actor(BaseModel):
 
 
 class Critic(BaseModel):
-    def __init__(self, sess, multi_obs_phs, multi_act_phs, lr=1e-2, gamma=0.99, tau=0.01, name=None, agent_id=None):
+    def __init__(self, sess, multi_obs_phs, multi_act_phs, lr=1e-2, gamma=0.99, tau=0.01, name=None, agent_id=None, grad_norm_clipping=None):
         super().__init__(name)
 
         self.sess = sess
         self.agent_id = agent_id
+        self.grad_norm_clipping = grad_norm_clipping
 
         # flatten observation shape
         self.mul_obs_dim = None
@@ -159,8 +165,12 @@ class Critic(BaseModel):
             self._loss = tf.reduce_mean(tf.square(self.t_q_input - self.e_q)) 
 
             optimizer = tf.train.AdamOptimizer(self._lr)
-            grad_vars = optimizer.compute_gradients(self._loss, self.e_variables)
-            self._train_op = optimizer.apply_gradients(grad_vars)
+            gradients = optimizer.compute_gradients(self._loss, self.e_variables)
+            if self.grad_norm_clipping is not None:
+                for i, (grad, var) in enumerate(gradients):
+                    if grad is not None:
+                        gradients[i] = (tf.clip_by_norm(grad, self.grad_norm_clipping), var)
+            self._train_op = optimizer.apply_gradients(gradients)
 
     @property
     def t_variables(self):
@@ -232,7 +242,7 @@ class Critic(BaseModel):
 
 class MADDPG(object):
     def __init__(self, sess, env, name, n_agent, batch_size=512, actor_lr=1e-2, critic_lr=1e-2, 
-            gamma=0.99, tau=0.01, memory_size=10**4):
+            gamma=0.99, tau=0.01, memory_size=10**6, grad_norm_clipping=None):
         # == Initialize ==
         self.name = name
         self.sess = sess
@@ -254,7 +264,7 @@ class MADDPG(object):
                 with tf.variable_scope("policy_{}_{}".format(self.name, i)):
                     obs_space, act_space = env.observation_space[i].shape, (env.action_space[i].n,)
                     self.actors.append(Actor(self.sess, state_space=obs_space, act_space=act_space, lr=actor_lr, tau=tau,
-                                             name=name, agent_id=i))
+                                             name=name, agent_id=i, grad_norm_clipping=grad_norm_clipping))
 
             # collect action outputs of all actors
             self.obs_phs = [actor.obs_tensor for actor in self.actors]
@@ -266,7 +276,7 @@ class MADDPG(object):
                 # mask_act_tfs = self._mask_other_act_phs(act_tfs, i)  # stop gradient
                 with tf.variable_scope("critic_{}_{}".format(name, i)):
                     # self.critics.append(Critic(self.sess, self.obs_phs, self.act_phs, mask_act_tfs, lr=critic_lr, name=name, agent_id=i))
-                    self.critics.append(Critic(self.sess, self.obs_phs, self.act_phs, lr=critic_lr, name=name, agent_id=i))
+                    self.critics.append(Critic(self.sess, self.obs_phs, self.act_phs, lr=critic_lr, name=name, agent_id=i, grad_norm_clipping=grad_norm_clipping))
                     self.actions_dims.append(self.env.action_space[i].n)
 
             # set optimizer for actors
