@@ -100,7 +100,6 @@ class Actor(BaseModel):
 
     def target_act(self, obs): # , one_hot=False):
         """ Return an action id -> integer """
-        print("target", obs.shape)
 
         act = self.sess.run(self._target_act, feed_dict={self.obs_input: obs})
         

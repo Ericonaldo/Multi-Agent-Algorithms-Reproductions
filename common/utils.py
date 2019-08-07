@@ -71,7 +71,6 @@ class BunchBuffer(Buffer):
 
         for i, (state, action, next_state, reward, done) in enumerate(zip(*args)):
             if self._next_idx >= self._size:
-                print(i)
                 self._data[i].append(Transition(state, action, next_state, reward, done))
             else:
                 self._data[i][self._next_idx] = Transition(state, action, next_state, reward, done)
