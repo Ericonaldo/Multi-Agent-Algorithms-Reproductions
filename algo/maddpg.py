@@ -91,7 +91,7 @@ class Actor(BaseModel):
         policy_logits = self.sess.run(self._act_tf, feed_dict={self.obs_input: [obs]})
         return policy_logits[0]
 
-    def target_act(self, obs, one_hot=False):
+    def target_act(self, obs): # , one_hot=False):
         """ Return an action id -> integer """
 
         policy = self.sess.run(self.t_policy, feed_dict={self.obs_input: obs})
@@ -388,8 +388,8 @@ class MADDPG(object):
         # get target action
         next_act_clus = [None for _ in range(self.n_agent)]
         for i, batch in enumerate(batch_list):
-            next_act_clus[i] = self.actors[i].target_act(batch.next_state, one_hot=False)
-            next_act_clus[i] = np.eye(len(next_act_clus[i]), self.env.action_space[i].n)[next_act_clus[i]]
+            next_act_clus[i] = self.actors[i].target_act(batch.next_state)
+            # next_act_clus[i] = np.eye(len(next_act_clus[i]), self.env.action_space[i].n)[next_act_clus[i]]
 
         # train critic
         for i, batch in enumerate(batch_list):

@@ -156,10 +156,8 @@ if __name__ == '__main__':
             # d_loss = [[] for _ in range(num_agents)]
             # a_loss, c_loss = [[] for _ in range(num_agents)], [[] for _ in range(num_agents)]
 
-            # p_loss = map(lambda x, y: y + [x], info_n['p_loss'], p_loss)
-            a_loss = map(lambda x, y: y + [x], info_n['a_loss'], a_loss)
-            c_loss = map(lambda x, y: y + [x], info_n['c_loss'], c_loss)
-            d_loss = map(lambda x, y: y + [x], info_n['d_loss'], d_loss)
+            t_info = maiail.train()
+            a_loss, c_loss, d_loss = t_info['a_loss'], t_info['c_loss'], t_info['d_loss']
 
             feed_dict = dict()
             # feed_dict.update(zip(summary_dict['p_loss'], p_loss))

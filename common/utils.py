@@ -2,6 +2,8 @@ import numpy as np
 import operator
 from functools import reduce
 from collections import namedtuple
+import random
+import time
 
 
 try:
@@ -33,7 +35,7 @@ class Buffer:
         self._data[self._flag] = Transition(*args)
         self._flag = (self._flag + 1) % self._capacity
 
-    def sample(self, batch_size):
+    def sample(self):
         if len(self._data) < self.batch_size:
             return None
 
@@ -68,7 +70,7 @@ class BunchBuffer(Buffer):
 
         for i, (state, action, next_state, reward, done) in enumerate(zip(*args)):
             if self._size < self._capacity:
-                self._data[i].append([Transition(state, action, next_state, reward, done)])
+                self._data[i].append(Transition(state, action, next_state, reward, done))
 
         self._size = min(self._size + 1, self._capacity)
 
@@ -80,7 +82,7 @@ class BunchBuffer(Buffer):
     def set_data(self, data):
         self._data = data
 
-    def sample(self, batch_size):
+    def sample(self):
         """ Sample mini-batch data with given size
 
         :param batch_size: int, indicates the size of mini-batch
@@ -92,7 +94,7 @@ class BunchBuffer(Buffer):
 
         samples = [None for _ in range(self.n_agent)]
 
-        random.seed(a=self._flag)
+        random.seed(time.time())
         for i in range(self.n_agent):
             tmp = random.sample(self._data[i], self.batch_size)
             samples[i] = Transition(*zip(*tmp))
