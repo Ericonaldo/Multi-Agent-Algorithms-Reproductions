@@ -60,7 +60,7 @@ class Actor(BaseModel):
     def obs_tensor(self):
         return self.obs_input
 
-    def _construct(self, out_dim, norm=True):
+    def _construct(self, out_dim, norm=False):
         l1 = tf.layers.dense(self.obs_input, units=128, activation=tf.nn.relu, name="l1")
         if norm: l1 = tc.layers.layer_norm(l1)
 
@@ -94,12 +94,13 @@ class Actor(BaseModel):
         self.sess.run(self._soft_update_op)
 
     def act(self, obs):
-        act = self.sess.run(self._eval_act, feed_dict={self.obs_input: [obs]})
+        act = self.sess.run(self._eval_act, feed_dict={self.obs_input: obs})
 
         return act[0]
 
     def target_act(self, obs): # , one_hot=False):
         """ Return an action id -> integer """
+        print("target", obs.shape)
 
         act = self.sess.run(self._target_act, feed_dict={self.obs_input: obs})
         
@@ -192,7 +193,7 @@ class Critic(BaseModel):
     def act_cluster_ph(self):
         return self.multi_act_phs
 
-    def _construct(self, input_ph, norm=True):
+    def _construct(self, input_ph, norm=False):
         l1 = tf.layers.dense(input_ph, units=128, activation=tf.nn.relu, name="l1")
         if norm: l1 = tc.layers.layer_norm(l1)
 
@@ -323,7 +324,7 @@ class MADDPG(object):
         for i, (obs, agent) in enumerate(zip(obs_set, self.actors)):
             n = self.actions_dims[i]
 
-            policy = agent.act(obs)
+            policy = agent.act([obs])
 
             # actions.append([np.random.choice(n, p=policy)])
             actions.append(policy)

@@ -26,7 +26,7 @@ if __name__ == '__main__':
     parser.add_argument("--scenario", type=str, default="simple", help="name of the scenario script")
     parser.add_argument("--max_episode_len", type=int, default=40, help="maximum episode length")
     parser.add_argument("--train_episodes", type=int, default=60000, help="number of episodes")
-    parser.add_argument("--num_agents", type=int, default=2, help="number of agents")
+    # parser.add_argument("--num_agents", type=int, default=2, help="number of agents")
     # parser.add_argument("--good_policy", type=str, default="maddpg", help="policy for good agents")
     # parser.add_argument("--adv_policy", type=str, default="maddpg", help="policy of adversaries")
     # Core training parameters
@@ -68,7 +68,8 @@ if __name__ == '__main__':
     config.gpu_options.allow_growth = True
     sess = tf.Session(config=config)
   
-    num_agents = min(args.num_agents, env.n)
+    # num_agents = min(args.num_agents, env.n)
+    num_agents = env.n
     maddpg = MADDPG(sess, env, args.exp_name, num_agents, args.batch_size, args.actor_lr, args.critic_lr, args.gamma,
                         args.tau, args.memory_size, grad_norm_clipping=0.5)
 
