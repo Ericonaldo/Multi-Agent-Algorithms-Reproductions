@@ -1,2 +1,2 @@
-model_checkpoint_path: "maddpg-400"
-all_model_checkpoint_paths: "maddpg-400"
+model_checkpoint_path: "maddpg-1600"
+all_model_checkpoint_paths: "maddpg-1600"
