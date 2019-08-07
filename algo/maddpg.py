@@ -11,6 +11,7 @@ from common.utils import BaseModel
 
 # This MADDPG assumes all actions are discret
 
+num_units = 64
 class Actor(BaseModel):
     def __init__(self, sess, state_space, act_space, lr=1e-2, tau=0.01, name=None, agent_id=None, grad_norm_clipping=None):
         super().__init__(name)
@@ -61,10 +62,10 @@ class Actor(BaseModel):
         return self.obs_input
 
     def _construct(self, out_dim, norm=False):
-        l1 = tf.layers.dense(self.obs_input, units=128, activation=tf.nn.relu, name="l1")
+        l1 = tf.layers.dense(self.obs_input, units=num_units, activation=tf.nn.relu, name="l1")
         if norm: l1 = tc.layers.layer_norm(l1)
 
-        l2 = tf.layers.dense(l1, units=128, activation=tf.nn.relu, name="l2")
+        l2 = tf.layers.dense(l1, units=num_units, activation=tf.nn.relu, name="l2")
         if norm: l2 = tc.layers.layer_norm(l2)
 
         out = tf.layers.dense(l2, units=out_dim)
@@ -193,10 +194,10 @@ class Critic(BaseModel):
         return self.multi_act_phs
 
     def _construct(self, input_ph, norm=False):
-        l1 = tf.layers.dense(input_ph, units=128, activation=tf.nn.relu, name="l1")
+        l1 = tf.layers.dense(input_ph, units=num_units, activation=tf.nn.relu, name="l1")
         if norm: l1 = tc.layers.layer_norm(l1)
 
-        l2 = tf.layers.dense(l1, units=128, activation=tf.nn.relu, name="l2")
+        l2 = tf.layers.dense(l1, units=num_units, activation=tf.nn.relu, name="l2")
         if norm: l2 = tc.layers.layer_norm(l2)
 
         out = tf.layers.dense(l2, units=1, name="Q")

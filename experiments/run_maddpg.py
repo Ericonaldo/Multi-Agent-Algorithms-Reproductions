@@ -24,7 +24,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser("MADDPG experiments")
     # Environment
     parser.add_argument("--scenario", type=str, default="simple", help="name of the scenario script")
-    parser.add_argument("--max_episode_len", type=int, default=40, help="maximum episode length")
+    parser.add_argument("--max_episode_len", type=int, default=25, help="maximum episode length")
     parser.add_argument("--train_episodes", type=int, default=60000, help="number of episodes")
     # parser.add_argument("--num_agents", type=int, default=2, help="number of agents")
     # parser.add_argument("--good_policy", type=str, default="maddpg", help="policy for good agents")
@@ -76,12 +76,16 @@ if __name__ == '__main__':
     if not is_evaluate:
         # initialize summary
         summary_r = [None for _ in range(num_agents)]
-
         for i in range(num_agents):
             summary_r[i] = tf.placeholder(tf.float32, None)
             tf.summary.scalar('Episode-Reward-{}'.format(i), summary_r[i])
 
-        summary_dict = {'reward': summary_r}
+        summary_dict = {'agent_reward': summary_r}
+
+        summary_r_all = tf.placeholder(tf.float32, None)
+        tf.summary.scalar('Episode-Reward-Sum', summary_r_all)
+
+        summary_dict['sum_reward'] = summary_r_all
 
         summary_a_loss, summary_c_loss = [None for _ in range(num_agents)], [None for _ in range(num_agents)]
         for i in range(num_agents):
@@ -124,10 +128,10 @@ if __name__ == '__main__':
     total_step = 0
     t_info_n = None
     episode_r_all = []
+    episode_r_all_sum = []
     for ep in range(0, num_episodes):
         a_loss = [[] for _ in range(num_agents)]
         c_loss = [[] for _ in range(num_agents)]
-
         obs_n = env.reset()
         episode_r_n = [0. for _ in range(num_agents)]
 
@@ -164,6 +168,7 @@ if __name__ == '__main__':
         # every episode
         episode_r_n = [round(_, 3) for _ in episode_r_n]
         episode_r_all.append(episode_r_n)
+        episode_r_all_sum.append(np.sum(episode_r_n))
 
         # if t_info_n is not None:
         # if not is_evaluate:
@@ -171,20 +176,21 @@ if __name__ == '__main__':
             a_loss = list(map(lambda x: round(sum(x) / len(x), 3), a_loss))
             c_loss = list(map(lambda x: round(sum(x) / len(x), 3), c_loss))
             feed_dict = dict()
-            feed_dict.update(zip(summary_dict['reward'], episode_r_n))
+            feed_dict.update(zip(summary_dict['agent_reward'], episode_r_n))
             feed_dict.update(zip(summary_dict['a_loss'], a_loss))
             feed_dict.update(zip(summary_dict['c_loss'], c_loss))
+            feed_dict.update({summary_dict['sum_reward']: episode_r_all_sum[-1]})
 
             summary = sess.run(merged, feed_dict=feed_dict)
             summary_writer.add_summary(summary, ep)
 
             if (ep+1) % args.save_interval == 0:
                 maddpg.save(args.save_dir+args.scenario, ep+1, args.max_to_keep)
-                print("\n--- episode-{} | [a-loss]: {} | [c-loss]: {} | [mean-reward]: {} | [inter-time]: {}".format(ep+1, a_loss, c_loss, np.mean(episode_r_all[-args.save_interval:], axis=0), round(time.time()-t_start),4))
+                print("\n--- episode-{} | [a-loss]: {} | [c-loss]: {} | [mean-reward]: {} | [inter-time]: {}".format(ep+1, a_loss, c_loss, np.mean(episode_r_all_sum[-args.save_interval:], axis=0), round(time.time()-t_start),4))
                 t_start = time.time()
 
         if is_evaluate:
-            print("\n--- episode-{} | [mean-reward]: {} | [inter-time]: {}".format(ep+1, np.mean(episode_r_n, axis=0), round(time.time()-t_start),4))
+            print("\n--- episode-{} | [mean-reward]: {} | [inter-time]: {}".format(ep+1, np.mean(episode_r_n_sum, axis=0), round(time.time()-t_start),4))
             t_start = time.time()
            
     env.close()
