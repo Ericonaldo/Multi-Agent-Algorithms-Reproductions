@@ -410,7 +410,7 @@ class MADDPG(object):
             act_phs_i = self.act_phs[:i]+self.act_phs[i+1:]
             act_clus_i = act_clus[:i]+act_clus[i+1:]
             feed_dict = dict()
-            feed_dict.update(zip(self.act_phs_i, act_clus_i))
+            feed_dict.update(zip(act_phs_i, act_clus_i))
             feed_dict.update(zip(self.obs_phs, state_clus))
 
             a_loss[i] = self.actors[i].train(feed_dict)
