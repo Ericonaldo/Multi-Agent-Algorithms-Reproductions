@@ -1,2 +1,0 @@
-model_checkpoint_path: "maddpg-26000"
-all_model_checkpoint_paths: "maddpg-26000"
