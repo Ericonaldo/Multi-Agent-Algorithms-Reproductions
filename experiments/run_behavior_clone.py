@@ -12,7 +12,7 @@ sys.path.insert(1, os.path.join(sys.path[0], '../ma_env/multiagent-particle-envs
 import multiagent
 import multiagent.scenarios as scenarios
 from multiagent.environment import MultiAgentEnv
-from algo.behavior_clone import BehavioralCloning
+from algo.behavior_clone import MABehavioralCloning
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 tf.logging.set_verbosity(tf.logging.ERROR)
@@ -36,11 +36,11 @@ if __name__ == '__main__':
     parser.add_argument("--restore", action="store_true", default=False)
     parser.add_argument("--load_dir", type=str, default="./trained_models/", help="directory in which training state and model are loaded")
     parser.add_argument("--load_epoch", type=int, default=1000, help="the epoch of loaded model")
-    parser.add_argument("--max_to_keep", type=int, defaut=10, help="number of models to save")
+    parser.add_argument("--max_to_keep", type=int, default=10, help="number of models to save")
     # Evaluation
     parser.add_argument("--is_evaluate", action="store_true",default=False, help='is training or evalutaion')
     # parser.add_argument("--eval_interval", type=int, default=200, help='Evaluation interval episode and save model(default=1000)')
-    # parser.add_argument("--render", action="store_true", default=False, help="do or not render")
+    parser.add_argument("--render", action="store_true", default=False, help="do or not render")
     # parser.add_argument("--plots_dir", type=str, default="./plots/", help="directory where plot data is saved")
     args = parser.parse_args()
 
@@ -110,7 +110,7 @@ if __name__ == '__main__':
 
             if (iteration+1) % args.save_interval == 0:
                 bc.save(args.save_dir+args.scenario, ep, args.max_to_keep)
-                print("\n---- epoch: {} | [loss]: {} | [inter-time]: {}".format(ep, loss, round(time.time()-t_start),4)))
+                print("\n---- epoch: {} | [loss]: {} | [inter-time]: {}".format(ep, loss, round(time.time()-t_start),4))
                 t_start = time.time()
 
             summary_writer.add_summary(summary, iteration)

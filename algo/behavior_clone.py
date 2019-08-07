@@ -10,7 +10,7 @@ from common.utils import BaseModel, Dataset
 
 
 class BCActor(BaseModel):
-    def __init__(self, sess, state_space, act_space, lr=1e-4, name=None, agent_id=None):
+    def __init__(self, sess, state_space, act_space, lr=1e-2, name=None, agent_id=None):
         super().__init__(name)
 
         self._lr = lr
@@ -79,7 +79,7 @@ class BCActor(BaseModel):
         return loss
 
 class MABehavioralCloning:
-    def __init__(self, sess, env, name, n_agent, batch_size=64, lr=1e-4):
+    def __init__(self, sess, env, name, n_agent, batch_size=64, lr=1e-2):
         self.name = name
         self.sess = sess
         self.env = env
@@ -95,7 +95,7 @@ class MABehavioralCloning:
                 print("initialize behavior actor for agent {} ...".format(i))
                 with tf.variable_scope("policy_{}_{}".format(name, i)):
                     obs_space, act_space = env.observation_space[i].shape, (env.action_space[i].n,)
-                    self.actors.append(BCActor(self.sess, state_space=obs_space, act_space=act_space, lr=actor_lr,
+                    self.actors.append(BCActor(self.sess, state_space=obs_space, act_space=act_space, lr=lr,
                                              name=name, agent_id=i))
 
             # collect action outputs of all actors
