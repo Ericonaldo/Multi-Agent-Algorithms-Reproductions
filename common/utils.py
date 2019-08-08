@@ -49,7 +49,7 @@ class Buffer:
         return self._capacity
 
 class BunchBuffer(Buffer):
-    def __init__(self, n_agent, capacity, batch_size):
+    def __init__(self, n_agent, capacity=10**4, batch_size=512):
         super().__init__(capacity, batch_size)
 
         self.n_agent = n_agent
@@ -62,6 +62,7 @@ class BunchBuffer(Buffer):
 
     def clear(self):
         self._data = [[] for _ in range(self.n_agent)]
+        self._next_idx = 0
         self._size = 0
 
     def push(self, *args):
@@ -79,13 +80,18 @@ class BunchBuffer(Buffer):
         self._next_idx = (self._next_idx + 1) % self._capacity
         self._size = min(self._size + 1, self._capacity)
 
-        return self._size < self.capacity
+        return self._size <= self.capacity
 
     def get_data(self):
         return self._data
 
     def set_data(self, data):
         self._data = data
+        len_data = len(data[0])
+        if len_data > self._capacity:
+            print("the size of data is larger than the capacity of the buffer!")
+            exit(0)
+        self._size = min(len_data, self._capacity)
 
     def sample(self):
         """ Sample mini-batch data with given size
@@ -157,8 +163,12 @@ class Dataset(object):
         self._point = 0
 
     def next(self):
-        batch_obs_n = list(map(lambda x: x[self._point:self._point+self.batch_size], self._observations))
-        batch_act_n = list(map(lambda x: x[self._point:self._point+self.batch_size], self._actions))
+        if self._point+self.batch_size > self._size:
+            batch_obs_n = list(map(lambda x: x[-self.batch_size:], self._observations))
+            batch_act_n = list(map(lambda x: x[-self.batch_size:], self._actions))
+        else:
+            batch_obs_n = list(map(lambda x: x[self._point:self._point+self.batch_size], self._observations))
+            batch_act_n = list(map(lambda x: x[self._point:self._point+self.batch_size], self._actions))
 
         return batch_obs_n, batch_act_n
 
@@ -185,14 +195,17 @@ class Dataset(object):
         load_dir = os.path.join(load_dir, self._name)
         self.clear()
         if not os.path.exists(load_dir):
-            print("Load dir is not exist!")
+            print("Load dir {} is not exist!".format(load_dir))
             exit(0)
         for i in range(self.agent_num):
             obs_path = load_dir + "/expert_obs-{}.csv".format(i)
             act_path = load_dir + "/expert_act-{}.csv".format(i)
             self._observations[i] = np.genfromtxt(obs_path)
             self._actions[i] = np.genfromtxt(act_path)
-        self._size = len(self._actions[0])
+            if len(self.actions[i])>self._capacity:
+                print("the size of data is larger than the capacity of the dataset")
+                exit(0)
+        self._size = min(len(self._actions[0]), self._capacity)
         print("loaded data from {}".format(load_dir))
 
 

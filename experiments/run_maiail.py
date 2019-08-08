@@ -12,7 +12,8 @@ sys.path.insert(1, os.path.join(sys.path[0], '../ma_env/multiagent-particle-envs
 import multiagent
 import multiagent.scenarios as scenarios
 from multiagent.environment import MultiAgentEnv
-from algo.behavior_clone import BehavioralCloning
+from algo.maiail import MAIAIL
+from common.utils import Dataset
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 tf.logging.set_verbosity(tf.logging.ERROR)
@@ -22,23 +23,25 @@ if __name__ == '__main__':
     # Environment
     parser.add_argument("--scenario", type=str, default="simple", help="name of the scenario script")
     parser.add_argument("--max_episode_len", type=int, default=40, help="maximum episode length")
-    parser.add_argument("--episodes", type=int, default=120, help="number of episodes")
+    parser.add_argument("--episodes", type=int, default=200, help="number of episodes")
     parser.add_argument("--iterations", type=int, default=1000, help="number of training iterations")
-    parser.add_argument("--num_agents", type=int, default=2, help="number of agents")
+    # parser.add_argument("--num_agents", type=int, default=2, help="number of agents")
     # Core training parameters
     parser.add_argument("--lr", type=float, default=1e-2, help="learning rate for Adam optimizer")
     parser.add_argument("--gamma", type=float, default=0.95, help="discount factor")
     parser.add_argument("--batch_size", type=int, default=64, help="the batch size to optimize at the same time")
+    parser.add_argument("--memory_size", type=int, default=10**4, help="the memory size of replay buffer")
+    parser.add_argument("--dataset_size", type=int, default=65536, help="the dataset size for learning discriminators")
     # Checkpointing & Logging
-    parser.add_argument("--exp_name", type=str, default="behavior_clone", help="name of the experiment")
+    parser.add_argument("--exp_name", type=str, default="maiail", help="name of the experiment")
     parser.add_argument("--save_interval", type=int, default=400, help='Interval episode for saving model(default=400)')
     parser.add_argument("--save_dir", type=str, default="./trained_models/", help="Parent directory in which trained models should be saved")
-    parser.add_argument("--data_dir", type=str, default="./interactions/", help="Directory in which expert data is saved")
+    parser.add_argument("--data_dir", type=str, default="./expert_data/", help="Directory in which expert data is saved")
     parser.add_argument("--log_dir", type=str, default="./logs/", help="directory of logging")
     parser.add_argument("--restore", action="store_true", default=False)
     parser.add_argument("--load_dir", type=str, default="./trained_models/", help="Parent directory in which trained models are loaded")
     parser.add_argument("--load_epoch", type=int, default=1000, help="the epoch of loaded model")
-    parser.add_argument("--max_to_keep", type=int, defaut=10, help="number of models to save")
+    parser.add_argument("--max_to_keep", type=int, default=10, help="number of models to save")
     # Evaluation
     parser.add_argument("--is_evaluate", action="store_true",default=False, help='is training or evalutaion')
     # parser.add_argument("--eval_interval", type=int, default=200, help='Evaluation interval episode and save model(default=1000)')
@@ -62,31 +65,34 @@ if __name__ == '__main__':
     config.gpu_options.allow_growth = True
     sess = tf.Session(config=config)
 
-    num_agents = min(args.num_agents, env.n)
-    expert_dataset.load_data(args.data_dir)
+    num_agents = env.n
     # learning_dataset = Dataset(args.scenario, num_agents, args.batch_size)
-    maiail = MAIAIL(sess, env, args.scenario, args.exp_name, num_agents, expert_dataset, args.batch_size, args.lr, args.gamma)
-    expert_dataset = Dataset(args.scenario, num_agents, args.batch_size)
+    expert_dataset = Dataset(args.scenario, num_agents, args.batch_size, capacity=args.dataset_size)
+    expert_dataset.load_data(args.data_dir)
+    maiail = MAIAIL(sess, env, args.scenario, args.exp_name, num_agents, expert_dataset, args.batch_size, args.lr, args.gamma, args.memory_size)
 
     if not is_evaluate:
         # initialize summary
         summary_d_loss = [None for _ in range(num_agents)]
-        summary_p_loss = [None for _ in range(num_agents)]
+        # summary_p_loss = [None for _ in range(num_agents)]
+        summary_pa_loss = [None for _ in range(num_agents)]
+        summary_pc_loss = [None for _ in range(num_agents)]
         for i in range(num_agents):
             summary_d_loss[i] = tf.placeholder(tf.float32, None)
             # summary_p_loss[i] = tf.placeholder(tf.float32, None)
-            summary_a_loss[i] = tf.placeholder(tf.float32, None)
-            summary_c_loss[i] = tf.placeholder(tf.float32, None)
+            summary_pa_loss[i] = tf.placeholder(tf.float32, None)
+            summary_pc_loss[i] = tf.placeholder(tf.float32, None)
 
             tf.summary.scalar('Discriminator-Loss-{}'.format(i), summary_d_loss[i])
             # tf.summary.scalar('Policy-Loss-{}'.format(i), summary_p_loss[i])
-            tf.summary.scalar('(Policy)Actor-Loss-{}'.format(i), summary_p_loss[i])
-            tf.summary.scalar('(Policy)Critic-Loss-{}'.format(i), summary_p_loss[i])
+            tf.summary.scalar('Policy-Actor-Loss-{}'.format(i), summary_pa_loss[i])
+            tf.summary.scalar('Policy-Critic-Loss-{}'.format(i), summary_pc_loss[i])
 
+        summary_dict = dict()
         summary_dict['d_loss'] = summary_d_loss
         # summary_dict['p_loss'] = summary_p_loss
-        summary_dict['a_loss'] = summary_a_loss
-        summary_dict['c_loss'] = summary_c_loss
+        summary_dict['pa_loss'] = summary_pa_loss
+        summary_dict['pc_loss'] = summary_pc_loss
 
         merged = tf.summary.merge_all()
 
@@ -98,7 +104,7 @@ if __name__ == '__main__':
             
         summary_writer = tf.summary.FileWriter(log_dir)
 
-        maiail.init()  # run self.sess.run(tf.global_variables_initializer()) and hard update
+        maiail.init()  # run self.sess.run(tf.global_variables_initializer())
 
     if args.restore or is_evaluate:
         load_dir = os.path.join(args.load_dir, args.scenario)
@@ -121,9 +127,11 @@ if __name__ == '__main__':
     total_step = 0
     observations_n = []
     actions_n = []
-    for iteration in range(args.iterations)
+    for iteration in range(args.iterations):
         # sample interations
-        for ep in range(args.train_episodes):
+        print("sample interactions...")
+        episode_r_sum = []
+        for ep in range(args.episodes):
             obs_n = env.reset()
             episode_r_n = [0. for _ in range(num_agents)]
             run_policy_steps = 0
@@ -146,23 +154,26 @@ if __name__ == '__main__':
 
                 obs_n = next_obs_n
                 episode_r_n = list(map(operator.add, episode_r_n, reward_n))
-                
-            print("\n--- episode-{} | [reward]: {}".format(ep, reward))
+            
+            episode_r_sum.append(np.sum(episode_r_n))
             if not flag:
                 break
         
+        print("--- iteration-{} | [mean-sample-sum-reward]: {}".format(iteration, np.mean(episode_r_sum)))
         if not is_evaluate:
             # p_loss = [[] for _ in range(num_agents)]
             # d_loss = [[] for _ in range(num_agents)]
             # a_loss, c_loss = [[] for _ in range(num_agents)], [[] for _ in range(num_agents)]
 
+            print("iteration {} | training models...".format(iteration))
             t_info = maiail.train()
-            a_loss, c_loss, d_loss = t_info['a_loss'], t_info['c_loss'], t_info['d_loss']
+
+            pa_loss, pc_loss, d_loss = t_info['pa_loss'], t_info['pc_loss'], t_info['d_loss']
 
             feed_dict = dict()
             # feed_dict.update(zip(summary_dict['p_loss'], p_loss))
-            feed_dict.update(zip(summary_dict['a_loss'], a_loss))
-            feed_dict.update(zip(summary_dict['c_loss'], c_loss))
+            feed_dict.update(zip(summary_dict['pa_loss'], pa_loss))
+            feed_dict.update(zip(summary_dict['pc_loss'], pc_loss))
             feed_dict.update(zip(summary_dict['d_loss'], d_loss))
 
             summary = sess.run(merged, feed_dict=feed_dict)
@@ -171,7 +182,7 @@ if __name__ == '__main__':
             if (iteration+1) % args.save_interval == 0:
                 maiail.save(args.save_dir)
                 print("-----------------------------------------------------------------")
-                print("\n----[iteration]: {} | [p-loss]: {} | [d-loss]: {} | [inter-time]: {}".format(iteration, p_loss, d_loss, round(time.time()-t_start),4)))
+                print("\n----[iteration]: {} | [pa-loss]: {} | [pc-loss]: {} | [d-loss]: {} | [inter-time]: {}".format(iteration, pa_loss, pc_loss, d_loss, round(time.time()-t_start),4))
                 print("-----------------------------------------------------------------")
                 t_start = time.time()
 

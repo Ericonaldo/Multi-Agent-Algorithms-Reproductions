@@ -269,8 +269,7 @@ class MADDPG(object):
 
             # collect action outputs of all actors
             self.obs_phs = [actor.obs_tensor for actor in self.actors]
-            act_tfs = [actor.act_tensor for actor in self.actors]
-            self.act_phs = act_tfs
+            self.act_phs = [actor.act_tensor for actor in self.actors]
 
             for i in range(self.env.n):
                 print("initialize critic for agent {} ...".format(i))
@@ -415,7 +414,7 @@ class MADDPG(object):
         feed_dict2.update(zip(self.act_phs, act_clus))
         for i, batch in enumerate(batch_list):
             target_q = self.critics[i].calculate_next_q(feed_dict1).reshape((-1,))
-            target_q = np.array(batch.reward) + (1. - np.array(batch.done)) * target_q * self.gamma
+            target_q = np.array(batch.reward).reshape(-1,) + (1. - np.array(batch.done).reshape(-1,)) * target_q * self.gamma
 
             c_loss[i] = self.critics[i].train(target_q.reshape((-1, 1)) ,feed_dict2) # state_clus, act_clus)
 
@@ -440,8 +439,8 @@ class MADDPG(object):
         if len(self.replay_buffer) < self.batch_size:
             return None
 
-        if len(self.replay_buffer) < self.replay_buffer.capacity:
-            return None
+        # if len(self.replay_buffer) < self.replay_buffer.capacity:
+        #     return None
 
         n_batch = 1
         mean_a_loss, mean_c_loss = [0.] * self.n_agent, [0.] * self.n_agent

@@ -130,7 +130,7 @@ if __name__ == '__main__':
 
     # =========================== start evaluating =========================== #
 
-    num_episodes = 10
+    num_episodes = 100
     max_episode_len = 25
     for ep in range(0, num_episodes):
         obs_n = env.reset()
@@ -143,7 +143,8 @@ if __name__ == '__main__':
             done = all(done_n)
             obs_n = next_obs_n
             episode_r_n = list(map(operator.add, episode_r_n, reward_n))
-        print("\n--- episode-{} | | [reward]: {} | [sum-reward]: {}".format(ep, episode_r_n, np.sum(episode_r_n)))
+        # print("\n--- episode-{} | [reward]: {} | [sum-reward]: {}".format(ep, episode_r_n, np.sum(episode_r_n)))
+        print("\n--- episode-{} | [sum-reward]: {}".format(ep, np.sum(episode_r_n)))
 
     env.close()
     summary_writer.close()

@@ -41,7 +41,7 @@ if __name__ == '__main__':
     # parser.add_argument("--good_policy", type=str, default="maddpg", help="policy for good agents")
     # parser.add_argument("--adv_policy", type=str, default="maddpg", help="policy of adversaries")
     # Core training parameters
-    parser.add_argument('--dataset_size', type=int, default=10**4, help='Memory size (default=10**4)')
+    parser.add_argument('--dataset_size', type=int, default=65536, help='Dataset size (default=2**16)')
     # Checkpointing & Logging
     parser.add_argument("--exp_name", type=str, default="sample_interactions", help="name of the experiment")
     parser.add_argument("--restore", action="store_true", default=False)
@@ -71,7 +71,7 @@ if __name__ == '__main__':
 
     algo_name = 'maddpg'
     maddpg = MADDPG(sess, env, algo_name, num_agents)
-    dataset = Dataset(args.scenario, num_agents)
+    dataset = Dataset(args.scenario, num_agents, capacity=args.dataset_size)
 
     maddpg.init()
     load_dir = os.path.join(args.load_dir, args.scenario)
