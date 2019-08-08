@@ -157,14 +157,13 @@ class Dataset(object):
         self._point = 0
 
     def next(self):
-        batch_obs_n = list(map(lambda x: x[self.point:self.point+self.batch_size], self._observations))
-        batch_act_n = list(map(lambda x: x[self.point:self.point+self.batch_size], self._actions))
+        batch_obs_n = list(map(lambda x: x[self._point:self._point+self.batch_size], self._observations))
+        batch_act_n = list(map(lambda x: x[self._point:self._point+self.batch_size], self._actions))
 
         return batch_obs_n, batch_act_n
 
     def save_data(self, save_dir):
         save_dir = os.path.join(save_dir, self._name)
-        print(save_dir)
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         for i in range(self.agent_num):
@@ -180,9 +179,11 @@ class Dataset(object):
                     np.savetxt(f_handle, self._observations[i], fmt='%s')
                 with open(act_path, 'wb') as f_handle:
                     np.savetxt(f_handle, self._actions[i], fmt='%s')
+        print("saved data to {}".format(save_dir))
 
     def load_data(self, load_dir):
         load_dir = os.path.join(load_dir, self._name)
+        self.clear()
         if not os.path.exists(load_dir):
             print("Load dir is not exist!")
             exit(0)
@@ -191,6 +192,8 @@ class Dataset(object):
             act_path = load_dir + "/expert_act-{}.csv".format(i)
             self._observations[i] = np.genfromtxt(obs_path)
             self._actions[i] = np.genfromtxt(act_path)
+        self._size = len(self._actions[0])
+        print("loaded data from {}".format(load_dir))
 
 
 class BaseModel(object):

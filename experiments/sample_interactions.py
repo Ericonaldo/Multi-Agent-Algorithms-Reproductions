@@ -74,7 +74,7 @@ if __name__ == '__main__':
     dataset = Dataset(args.scenario, num_agents)
 
     maddpg.init()
-    load_dir = args.load_dir + args.scenario
+    load_dir = os.path.join(args.load_dir, args.scenario)
     maddpg.load(load_dir, epoch=args.load_epoch)
 
     # ======================================== main loop ======================================== #

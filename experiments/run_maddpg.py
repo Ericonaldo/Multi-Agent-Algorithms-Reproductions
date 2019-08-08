@@ -111,7 +111,7 @@ if __name__ == '__main__':
         maddpg.init()  # run self.sess.run(tf.global_variables_initializer()) and hard update
 
     if args.restore or is_evaluate:
-        load_dir = args.load_dir + args.scenario
+        load_dir = os.path.join(args.load_dir, args.scenario)
         maddpg.load(load_dir, epoch=args.load_epoch)
 
     # ======================================== main loop ======================================== #
@@ -190,7 +190,7 @@ if __name__ == '__main__':
                 t_start = time.time()
 
         if is_evaluate:
-            print("\n--- episode-{} | [mean-reward]: {} | [inter-time]: {}".format(ep+1, np.mean(episode_r_n_sum, axis=0), round(time.time()-t_start),4))
+            print("\n--- episode-{} | [mean-reward]: {} | [inter-time]: {}".format(ep+1, np.mean(episode_r_all_sum[-args.save_interval:], axis=0), round(time.time()-t_start),4))
             t_start = time.time()
            
     env.close()

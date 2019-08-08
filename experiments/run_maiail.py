@@ -101,7 +101,7 @@ if __name__ == '__main__':
         maiail.init()  # run self.sess.run(tf.global_variables_initializer()) and hard update
 
     if args.restore or is_evaluate:
-        load_dir = args.load_dir + args.scenario
+        load_dir = os.path.join(args.load_dir, args.scenario)
         maiail.load(load_dir, epoch=args.load_epoch)
 
     # ======================================== main loop ======================================== #

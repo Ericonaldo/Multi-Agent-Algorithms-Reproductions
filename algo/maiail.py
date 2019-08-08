@@ -172,7 +172,7 @@ class MAIAIL:
         save_path = saver.save(self.sess, dir_name + "/{}".format(self.name), global_step=epoch)
         print("[*] Model saved in file: {}".format(save_path))
 
-    def load(self, dir_path, epoch=0):
+    def load(self, dir_path, epoch=None):
         """ Load model from local storage.
 
         :param dir_path: str, the grandparent directory path for model saving
@@ -184,8 +184,12 @@ class MAIAIL:
         dir_name = os.path.join(dir_path, self.name)
         model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.name)
         saver = tf.train.Saver(model_vars)
-        file_path = os.path.join(dir_name, "{}-{}".format(self.name, epoch))
-        saver.restore(self.sess, file_path)
+        if epoch is not None:
+            file_path = os.path.join(dir_name, "{}-{}".format(self.name, epoch))
+            saver.restore(self.sess, file_path)
+        else:
+            file_path = dir_name
+            saver.restore(self.sess, tf.train.latest_checkpoint(file_path))
 
     def train(self, expert_obs, expert_act, agent_obs, agent_act):
         
