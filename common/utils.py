@@ -86,7 +86,6 @@ class BunchBuffer(Buffer):
         return self._data
 
     def set_data(self, data):
-        print(self._size)
         self._data = data
         len_data = len(data[0])
         if len_data > self._capacity:
