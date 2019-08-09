@@ -22,7 +22,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser("Behavioral cloning experiments")
     # Environment
     parser.add_argument("--scenario", type=str, default="simple", help="name of the scenario script")
-    parser.add_argument("--iterations", type=int, default=1000, help="number of iterations")
+    parser.add_argument("--iterations", type=int, default=100, help="number of iterations")
     # parser.add_argument('--epochs', default=10, type=int)
     # parser.add_argument("--num_agents", type=int, default=2, help="number of agents")
     # Core training parameters
