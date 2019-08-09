@@ -23,7 +23,7 @@ if __name__ == '__main__':
     # Environment
     parser.add_argument("--scenario", type=str, default="simple", help="name of the scenario script")
     parser.add_argument("--max_episode_len", type=int, default=25, help="maximum episode length")
-    parser.add_argument("--episodes", type=int, default=200, help="number of episodes")
+    parser.add_argument("--episodes", type=int, default=1000, help="number of episodes")
     parser.add_argument("--iterations", type=int, default=1000, help="number of training iterations")
     # parser.add_argument("--num_agents", type=int, default=2, help="number of agents")
     # Core training parameters
@@ -31,7 +31,7 @@ if __name__ == '__main__':
     parser.add_argument("--entcoeff", type=float, default=0.001, help="the coefficient of the entropy loss of the discriminators")
     parser.add_argument("--gamma", type=float, default=0.95, help="discount factor")
     parser.add_argument("--tau", type=float, default=0.01, help="soft update factor")
-    parser.add_argument("--batch_size", type=int, default=64, help="the batch size to optimize at the same time")
+    parser.add_argument("--batch_size", type=int, default=1024, help="the batch size to optimize at the same time")
     parser.add_argument("--memory_size", type=int, default=10**4, help="the memory size of replay buffer")
     parser.add_argument("--dataset_size", type=int, default=65536, help="the dataset size for learning discriminators")
     # Checkpointing & Logging

@@ -9,8 +9,8 @@ from common.utils import flatten, softmax
 from common.utils import BaseModel, Dataset, Transition
 from algo.maddpg import MADDPG
 
-train_policy_times = 6
-train_discriminator_times = 2
+train_policy_times = 10
+train_discriminator_times = 1
 units = 128
 
 def logsigmoid(a):
@@ -56,7 +56,8 @@ class Discriminator(BaseModel):
             # self._train_op = optimizer.apply_gradients(grad_vars)
             self._train_op = optimizer.minimize(self._loss)
 
-        self.reward = -tf.log(1-tf.nn.sigmoid(self.logit_2)+1e-8)
+        self.reward = tf.log(tf.nn.sigmoid(self.logit_2)+1e-8)
+        # self.reward = -tf.log(1-tf.nn.sigmoid(self.logit_2)+1e-8)
 
     def _construct(self, input_ph, norm=False):
         l1 = tf.layers.dense(inputs=input_ph, units=units, activation=tf.nn.leaky_relu, name='l1')
