@@ -31,7 +31,7 @@ if __name__ == '__main__':
     parser.add_argument("--batch_size", type=int, default=256, help="the batch size to optimize at the same time")
     # Checkpointing & Logging
     parser.add_argument("--exp_name", type=str, default="behavior_clone", help="name of the experiment")
-    parser.add_argument("--save_interval", type=int, default=400, help='Interval episode for saving model(default=400)')
+    parser.add_argument("--save_interval", type=int, default=200, help='Interval episode for saving model(default=400)')
     parser.add_argument("--save_dir", type=str, default="./trained_models/", help="directory in which training state and model should be saved")
     parser.add_argument("--log_dir", type=str, default="./logs/", help="directory of logging")
     parser.add_argument("--restore", action="store_true", default=False)
@@ -85,7 +85,7 @@ if __name__ == '__main__':
 
         merged = tf.summary.merge_all()
 
-        log_dir = args.log_dir + args.scenario
+        log_dir = args.log_dir + args.scenario + args.exp_name
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
         else:
@@ -132,6 +132,7 @@ if __name__ == '__main__':
 
     num_episodes = 100
     max_episode_len = 25
+    episode_r_sum = []
     for ep in range(0, num_episodes):
         obs_n = env.reset()
         episode_r_n = [0. for _ in range(num_agents)]
@@ -145,6 +146,8 @@ if __name__ == '__main__':
             episode_r_n = list(map(operator.add, episode_r_n, reward_n))
         # print("\n--- episode-{} | [reward]: {} | [sum-reward]: {}".format(ep, episode_r_n, np.sum(episode_r_n)))
         print("\n--- episode-{} | [sum-reward]: {}".format(ep, np.sum(episode_r_n)))
+        episode_r_sum.append(np.sum(episode_r_n))
+    print("\n--- average reward {}".format(np.mean(episode_r_sum)))
 
     env.close()
     summary_writer.close()

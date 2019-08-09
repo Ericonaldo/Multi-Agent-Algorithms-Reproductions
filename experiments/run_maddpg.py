@@ -100,7 +100,7 @@ if __name__ == '__main__':
 
         merged = tf.summary.merge_all()
 
-        log_dir = args.log_dir + args.scenario
+        log_dir = args.log_dir + args.scenario + args.exp_name
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
         else:
@@ -190,7 +190,7 @@ if __name__ == '__main__':
                 t_start = time.time()
 
         if is_evaluate:
-            print("\n--- episode-{} | [mean-reward]: {} | [inter-time]: {}".format(ep+1, np.mean(episode_r_all_sum[-args.save_interval:], axis=0), round(time.time()-t_start),4))
+            print("\n--- episode-{} | [mean-reward]: {} | [inter-time]: {}".format(ep+1, episode_r_all_sum[-1], round(time.time()-t_start),4))
             t_start = time.time()
            
     env.close()

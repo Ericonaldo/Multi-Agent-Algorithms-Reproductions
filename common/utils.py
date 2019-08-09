@@ -86,6 +86,7 @@ class BunchBuffer(Buffer):
         return self._data
 
     def set_data(self, data):
+        print(self._size)
         self._data = data
         len_data = len(data[0])
         if len_data > self._capacity:
@@ -203,8 +204,8 @@ class Dataset(object):
             self._observations[i] = np.genfromtxt(obs_path)
             self._actions[i] = np.genfromtxt(act_path)
             if len(self.actions[i])>self._capacity:
-                print("the size of data is larger than the capacity of the dataset")
-                exit(0)
+                self._observations[i] = self._observations[i][self._capacity]
+                self._actions[i] = self._actions[i][self._capacity]
         self._size = min(len(self._actions[0]), self._capacity)
         print("loaded data from {}".format(load_dir))
 

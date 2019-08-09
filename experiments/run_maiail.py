@@ -22,13 +22,15 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser("Behavioral cloning experiments")
     # Environment
     parser.add_argument("--scenario", type=str, default="simple", help="name of the scenario script")
-    parser.add_argument("--max_episode_len", type=int, default=40, help="maximum episode length")
+    parser.add_argument("--max_episode_len", type=int, default=25, help="maximum episode length")
     parser.add_argument("--episodes", type=int, default=200, help="number of episodes")
     parser.add_argument("--iterations", type=int, default=1000, help="number of training iterations")
     # parser.add_argument("--num_agents", type=int, default=2, help="number of agents")
     # Core training parameters
     parser.add_argument("--lr", type=float, default=1e-2, help="learning rate for Adam optimizer")
+    parser.add_argument("--entcoeff", type=float, default=0.001, help="the coefficient of the entropy loss of the discriminators")
     parser.add_argument("--gamma", type=float, default=0.95, help="discount factor")
+    parser.add_argument("--tau", type=float, default=0.01, help="soft update factor")
     parser.add_argument("--batch_size", type=int, default=64, help="the batch size to optimize at the same time")
     parser.add_argument("--memory_size", type=int, default=10**4, help="the memory size of replay buffer")
     parser.add_argument("--dataset_size", type=int, default=65536, help="the dataset size for learning discriminators")
@@ -69,7 +71,7 @@ if __name__ == '__main__':
     # learning_dataset = Dataset(args.scenario, num_agents, args.batch_size)
     expert_dataset = Dataset(args.scenario, num_agents, args.batch_size, capacity=args.dataset_size)
     expert_dataset.load_data(args.data_dir)
-    maiail = MAIAIL(sess, env, args.scenario, args.exp_name, num_agents, expert_dataset, args.batch_size, args.lr, args.gamma, args.memory_size)
+    maiail = MAIAIL(sess, env, args.scenario, args.exp_name, num_agents, expert_dataset, args.batch_size, args.entcoeff, args.lr, args.gamma, args.tau, args.memory_size)
 
     if not is_evaluate:
         # initialize summary
@@ -125,12 +127,10 @@ if __name__ == '__main__':
     t_start = time.time()
     start_time = time.time()
     total_step = 0
-    observations_n = []
-    actions_n = []
     for iteration in range(args.iterations):
         # sample interations
         print("sample interactions...")
-        episode_r_sum = []
+        episode_r_all_sum = []
         for ep in range(args.episodes):
             obs_n = env.reset()
             episode_r_n = [0. for _ in range(num_agents)]
@@ -155,11 +155,11 @@ if __name__ == '__main__':
                 obs_n = next_obs_n
                 episode_r_n = list(map(operator.add, episode_r_n, reward_n))
             
-            episode_r_sum.append(np.sum(episode_r_n))
+            episode_r_all_sum.append(np.sum(episode_r_n))
             if not flag:
                 break
-        
-        print("--- iteration-{} | [mean-sample-sum-reward]: {}".format(iteration, np.mean(episode_r_sum)))
+
+        print("--- iteration-{} | [mean-sample-sum-reward]: {}".format(iteration, np.mean(episode_r_all_sum)))
         if not is_evaluate:
             # p_loss = [[] for _ in range(num_agents)]
             # d_loss = [[] for _ in range(num_agents)]
@@ -179,12 +179,13 @@ if __name__ == '__main__':
             summary = sess.run(merged, feed_dict=feed_dict)
             summary_writer.add_summary(summary, iteration)
 
+            print("-----------------------------------------------------------------")
+            print("----[iteration]: {} | [pa-loss]: {} | [pc-loss]: {} | [d-loss]: {} | [inter-time]: {}".format(iteration, pa_loss, pc_loss, d_loss, round(time.time()-t_start),4))
+            print("\n-----------------------------------------------------------------")
+            t_start = time.time()
+
             if (iteration+1) % args.save_interval == 0:
-                maiail.save(args.save_dir)
-                print("-----------------------------------------------------------------")
-                print("\n----[iteration]: {} | [pa-loss]: {} | [pc-loss]: {} | [d-loss]: {} | [inter-time]: {}".format(iteration, pa_loss, pc_loss, d_loss, round(time.time()-t_start),4))
-                print("-----------------------------------------------------------------")
-                t_start = time.time()
+                maiail.save(args.save_dir, iteration, args.max_to_keep)
 
     env.close()
     summary_writer.close()

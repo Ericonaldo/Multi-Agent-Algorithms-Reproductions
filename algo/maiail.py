@@ -12,8 +12,17 @@ from algo.maddpg import MADDPG
 train_policy_times = 6
 train_discriminator_times = 2
 units = 128
+
+def logsigmoid(a):
+    '''Equivalent to tf.log(tf.sigmoid(a))'''
+    return -tf.nn.softplus(-a)
+
+def logit_bernoulli_entropy(logits):
+    ent = (1.-tf.nn.sigmoid(logits))*logits - logsigmoid(logits)
+    return ent
+
 class Discriminator(BaseModel):
-    def __init__(self, sess, expert_s_a, agent_s_a, lr=1e-2, name=None, agent_id=None):
+    def __init__(self, sess, expert_s_a, agent_s_a, entcoeff=0.001, lr=1e-2, name=None, agent_id=None):
         super().__init__(name)
 
         self.sess = sess
@@ -28,20 +37,26 @@ class Discriminator(BaseModel):
         self.agent_s_a = agent_s_a
 
         with tf.variable_scope('network') as network_scope:
-            prob_1 = self._construct(input_ph=expert_s_a)
+            self.logit_1 = self._construct(input_ph=expert_s_a)
             network_scope.reuse_variables()  # share parameter
-            prob_2 = self._construct(input_ph=agent_s_a)
+            self.logit_2 = self._construct(input_ph=agent_s_a)
 
         with tf.variable_scope('loss'):
-            loss_expert = tf.reduce_mean(tf.log(tf.clip_by_value(prob_1, 0.01, 1)))
-            loss_agent = tf.reduce_mean(tf.log(tf.clip_by_value(1 - prob_2, 0.01, 1)))
-            loss = loss_expert + loss_agent
-            self._loss = -loss
-            optimizer = tf.train.AdamOptimizer(lr)
-            grad_vars = optimizer.compute_gradients(self._loss, self.trainable_variables)
-            self._train_op = optimizer.apply_gradients(grad_vars)
+            loss_expert = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_1, labels=tf.ones_like(self.logit_1)))
+            # loss_expert = tf.reduce_mean(tf.log(tf.nn.sigmoid(self.prob_1)+1e-8))
+            loss_agent = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_2, labels=tf.zeros_like(self.logit_2)))
+            # loss_agent = tf.reduce_mean(tf.log(1 - self.prob_2+1e-8))
+            logits = tf.concat([self.logit_1, self.logit_2], 0)
+            entropy = tf.reduce_mean(logit_bernoulli_entropy(logits))
+            entropy_loss = -entcoeff*entropy
+            self._loss = loss_expert + loss_agent + entropy_loss
 
-        self.reward = tf.log(tf.clip_by_value(prob_2, 1e-10, 1))
+            optimizer = tf.train.AdamOptimizer(lr)
+            # grad_vars = optimizer.compute_gradients(self._loss, self.trainable_variables)
+            # self._train_op = optimizer.apply_gradients(grad_vars)
+            self._train_op = optimizer.minimize(self._loss)
+
+        self.reward = -tf.log(1-tf.nn.sigmoid(self.logit_2)+1e-8)
 
     def _construct(self, input_ph, norm=False):
         l1 = tf.layers.dense(inputs=input_ph, units=units, activation=tf.nn.leaky_relu, name='l1')
@@ -49,7 +64,7 @@ class Discriminator(BaseModel):
         l2 = tf.layers.dense(inputs=l1, units=units, activation=tf.nn.leaky_relu, name='l2')
         if norm: l2 = tc.layers.layer_norm(l2)
         l3 = tf.layers.dense(inputs=l2, units=units // 2, activation=tf.nn.leaky_relu, name='l3')
-        out = tf.layers.dense(inputs=l3, units=1, activation=tf.sigmoid, name='prob')
+        out = tf.layers.dense(inputs=l3, units=1, activation=tf.identity, name='prob')
 
         return out
 
@@ -61,14 +76,14 @@ class Discriminator(BaseModel):
     def get_reward(self, feed_dict):
         reward = self.sess.run(self.reward, feed_dict=feed_dict)
         
-        return reward[0]
+        return reward.reshape((-1,))
 
     @property
     def trainable_variables(self):
         return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.scope)
 
 class MADiscriminator(object):
-    def __init__(self, sess, env, scenario, name, n_agent, expert_dataset, batch_size=512, lr=1e-2, memory_size = 10**4):
+    def __init__(self, sess, env, scenario, name, n_agent, expert_dataset, batch_size=512, entcoeff=0.001, lr=1e-2, memory_size = 10**4):
         self.name = name
         self.env = env
         self.sess = sess
@@ -100,7 +115,7 @@ class MADiscriminator(object):
         with tf.variable_scope(self.name):
             for i in range(self.env.n):
                 print("initialize discriminator for agent {} ...".format(i))
-                with tf.variable_scope("dicriminator_{}_{}".format(name, i)):
+                with tf.variable_scope("dicriminator_{}".format(i)):
                     self.discriminators.append(Discriminator(self.sess, self.expert_s_a, self.agent_s_a, lr=lr, name=name, agent_id=i))
 
     def get_reward(self, obs_n, act_n):
@@ -144,7 +159,7 @@ class MADiscriminator(object):
         return loss
 
 class MAIAIL:
-    def __init__(self, sess, env, scenario, name, n_agent, expert_dataset, batch_size=512, p_lr=1e-2, d_lr=1e-2, gamma=0.99, tau=0.01, memory_size=10**4):
+    def __init__(self, sess, env, scenario, name, n_agent, expert_dataset, batch_size=512, entcoeff=0.001, lr=1e-2, gamma=0.99, tau=0.01, memory_size=10**4):
         self.name = name
         self.sess = sess
         self.env = env
@@ -159,12 +174,12 @@ class MAIAIL:
             # Policy
             print("initialize policy agents ...")
             policy_name = "maddpg"
-            self.maddpg = MADDPG(sess, env, policy_name, n_agent, batch_size, actor_lr=p_lr, critic_lr=p_lr, gamma=gamma, tau=tau, memory_size=memory_size)
+            self.maddpg = MADDPG(sess, env, policy_name, n_agent, batch_size, actor_lr=lr, critic_lr=lr, gamma=gamma, tau=tau, memory_size=memory_size)
 
             # Discriminator
             print("initialize discriminators ...")
             discri_name = "ma-discriminator"
-            self.madcmt = MADiscriminator(self.sess, env, scenario=scenario, name=discri_name, n_agent=n_agent, expert_dataset=expert_dataset, batch_size=batch_size, lr=d_lr, memory_size=memory_size)
+            self.madcmt = MADiscriminator(self.sess, env, scenario=scenario, name=discri_name, n_agent=n_agent, expert_dataset=expert_dataset, batch_size=batch_size, entcoeff=entcoeff, lr=lr, memory_size=memory_size)
 
     def init(self):
         self.sess.run(tf.global_variables_initializer())
@@ -175,7 +190,7 @@ class MAIAIL:
 
         return actions
 
-    def save(self, dir_path, epoch, max_to_keep):
+    def save(self, dir_path, iteration, max_to_keep):
         """ Save model
         :param dir_path: str, the grandparent directory path for model saving
         :param epoch: int, global step
@@ -187,7 +202,7 @@ class MAIAIL:
             os.makedirs(dir_name)
         model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.name)
         saver = tf.train.Saver(model_vars, max_to_keep=max_to_keep)
-        save_path = saver.save(self.sess, dir_name + "/{}".format(self.name), global_step=epoch)
+        save_path = saver.save(self.sess, dir_name + "/{}".format(self.name), global_step=iteration)
         print("[*] Model saved in file: {}".format(save_path))
 
     def load(self, dir_path, epoch=None):
@@ -234,17 +249,18 @@ class MAIAIL:
             # tmp = zip(*zip(*buffer_data[i]))
             # buffer_data[i] = list(map(lambda x,y:Transition(x[0], x[1], x[2], y, x[4]), tmp, reward_n[i]))
         self.maddpg.replay_buffer.set_data(buffer_data)
+        # print(buffer_data[0])
 
         pa_loss = [0.0] * self.n_agent
         pc_loss = [0.0] * self.n_agent
+        print("train policy for {} times".format(train_policy_times))
         for _ in range(train_policy_times): # train policy 6 times
             t_info = self.maddpg.train()
             pa_loss = map(operator.add, pa_loss, t_info['a_loss'])
             pc_loss = map(operator.add, pc_loss, t_info['c_loss'])
 
-        pa_loss = [_/2 for _ in pa_loss]
-        pc_loss = [_/2 for _ in pc_loss]
-        print("train policy for {} times".format(train_policy_times))
+        pa_loss = [_/train_policy_times for _ in pa_loss]
+        pc_loss = [_/train_policy_times for _ in pc_loss]
         # clear buffer and dataset
         self.maddpg.clear_buffer()
         self.madcmt.clear_dataset()

@@ -76,6 +76,7 @@ class Actor(BaseModel):
         return out
 
     def set_optimization(self, q_func):
+        self.q_func = q_func
         with tf.variable_scope("optimization"):
             q_loss = -tf.reduce_mean(q_func.value)
             reg_loss = tf.reduce_mean(tf.square(self._eval_act))
@@ -115,6 +116,7 @@ class Actor(BaseModel):
     def train(self, feed_dict):
         loss, _ = self.sess.run([self._loss, self._train_op], feed_dict=feed_dict)
         self.soft_update()
+
         return loss
 
 
