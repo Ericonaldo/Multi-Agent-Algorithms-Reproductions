@@ -9,6 +9,7 @@ from common.utils import flatten, softmax
 from common.utils import BaseModel, Dataset
 
 
+units = 64
 class BCActor(BaseModel):
     def __init__(self, sess, state_space, act_space, lr=1e-2, name=None, agent_id=None):
         super().__init__(name)
@@ -29,23 +30,24 @@ class BCActor(BaseModel):
         self.obs_input = tf.placeholder(tf.float32, shape=(None,) + self._observation_space, name="Obs")
         self.target_act = tf.placeholder(tf.float32, shape=(None,) + self._action_space, name="TAct")
 
-        self._eval_scope = tf.get_variable_scope().name
-        self.eval_act = self._construct(self.act_dim)
+        self._scope = tf.get_variable_scope().name
+        self._act = self._construct(self.act_dim)
 
 
         with tf.variable_scope("optimization"):
-            self._loss = -tf.reduce_mean(tf.square(self.target_act - self.eval_act))
+            self._loss = tf.reduce_mean(tf.square(self.target_act - self._act))
             optimizer = tf.train.AdamOptimizer(self._lr)
-            grad_vars = optimizer.compute_gradients(self._loss, self.e_variables)
-            self._train_op = optimizer.apply_gradients(grad_vars)
+            self._train_op = optimizer.minimize(self._loss)
+            # grad_vars = optimizer.compute_gradients(self._loss, self.trainable_variables)
+            # self._train_op = optimizer.apply_gradients(grad_vars)
 
     @property
-    def e_variables(self):
-        return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=self._eval_scope)
+    def trainable_variables(self):
+        return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=self._scope)
 
     @property
     def act_tensor(self):
-        return self.eval_act
+        return self._act
 
     @property
     def tar_act_tensor(self):
@@ -55,11 +57,11 @@ class BCActor(BaseModel):
     def obs_tensor(self):
         return self.obs_input
 
-    def _construct(self, out_dim, norm=True):
-        l1 = tf.layers.dense(self.obs_input, units=100, activation=tf.nn.relu, name="l1")
+    def _construct(self, out_dim, norm=False):
+        l1 = tf.layers.dense(self.obs_input, units=units, activation=tf.nn.relu, name="l1")
         if norm: l1 = tc.layers.layer_norm(l1)
 
-        l2 = tf.layers.dense(l1, units=100, activation=tf.nn.relu, name="l2")
+        l2 = tf.layers.dense(l1, units=units, activation=tf.nn.relu, name="l2")
         if norm: l2 = tc.layers.layer_norm(l2)
 
         out = tf.layers.dense(l2, units=out_dim)
@@ -74,8 +76,8 @@ class BCActor(BaseModel):
         self.sess.run(self._soft_update_op)
 
     def act(self, obs):
-        policy_logits = self.sess.run(self.eval_act, feed_dict={self.obs_input: [obs]})
-        return policy_logits[0]
+        action = self.sess.run(self._act, feed_dict={self.obs_input: [obs]})
+        return action[0]
 
     def train(self, feed_dict):
         loss, _ = self.sess.run([self._loss, self._train_op], feed_dict=feed_dict)
@@ -96,17 +98,15 @@ class MABehavioralCloning:
         with tf.variable_scope(self.name):
             for i in range(self.env.n):
                 print("initialize behavior actor for agent {} ...".format(i))
-                with tf.variable_scope("policy_{}_{}".format(name, i)):
+                with tf.variable_scope("policy_{}".format(i)):
                     obs_space, act_space = env.observation_space[i].shape, (env.action_space[i].n,)
                     self.actors.append(BCActor(self.sess, state_space=obs_space, act_space=act_space, lr=lr,
-
                                              name=name, agent_id=i))
                     self.actions_dims.append(self.env.action_space[i].n)
 
             # collect action outputs of all actors
             self.obs_phs = [actor.obs_tensor for actor in self.actors]
             self.tar_act_phs = [actor.tar_act_tensor for actor in self.actors]
-            self.act_tfs = [actor.act_tensor for actor in self.actors]
 
     def init(self):
         self.sess.run(tf.global_variables_initializer())
@@ -115,14 +115,11 @@ class MABehavioralCloning:
         """ Accept a observation list, return action list of all agents. """
         actions = []
         for i, (obs, agent) in enumerate(zip(obs_set, self.actors)):
-            n = self.actions_dims[i]
+            policy = agent.act(obs)
+            # noise = np.random.gumbel(size=np.shape(logits)) # gumbel softmax
+            # policy += noise
 
-            logits = agent.act(obs)
-            noise = np.random.gumbel(size=np.shape(logits)) # gumbel softmax
-            logits += noise
-
-            policy = softmax(logits)
-
+            # n = self.actions_dims[i]
             # actions.append([np.random.choice(n, p=policy)])
             actions.append(policy)
 

@@ -169,6 +169,7 @@ class Dataset(object):
         else:
             batch_obs_n = list(map(lambda x: x[self._point:self._point+self.batch_size], self._observations))
             batch_act_n = list(map(lambda x: x[self._point:self._point+self.batch_size], self._actions))
+        self._point += self.batch_size
 
         return batch_obs_n, batch_act_n
 
@@ -179,6 +180,7 @@ class Dataset(object):
         for i in range(self.agent_num):
             obs_path = save_dir + "/expert_obs-{}.csv".format(i)
             act_path = save_dir + "/expert_act-{}.csv".format(i)
+            """
             try:
                 with open(obs_path, 'ab') as f_handle:
                     np.savetxt(f_handle, self._observations[i], fmt='%s')
@@ -189,6 +191,12 @@ class Dataset(object):
                     np.savetxt(f_handle, self._observations[i], fmt='%s')
                 with open(act_path, 'wb') as f_handle:
                     np.savetxt(f_handle, self._actions[i], fmt='%s')
+            """
+            with open(obs_path, 'wb') as f_handle:
+                np.savetxt(f_handle, self._observations[i], fmt='%s')
+            with open(act_path, 'wb') as f_handle:
+                np.savetxt(f_handle, self._actions[i], fmt='%s')
+
         print("saved data to {}".format(save_dir))
 
     def load_data(self, load_dir):
@@ -203,8 +211,11 @@ class Dataset(object):
             self._observations[i] = np.genfromtxt(obs_path)
             self._actions[i] = np.genfromtxt(act_path)
             if len(self.actions[i])>self._capacity:
-                self._observations[i] = self._observations[i][self._capacity]
-                self._actions[i] = self._actions[i][self._capacity]
+                self._observations[i] = self._observations[i][:self._capacity]
+                self._actions[i] = self._actions[i][:self._capacity]
+            if len(self.actions[i]) == 1:
+                self._observations[i] = [self._observations[i]]
+                self._actions[i] = [self._actions[i]]
         self._size = min(len(self._actions[0]), self._capacity)
         print("loaded data from {}".format(load_dir))
 

@@ -95,6 +95,7 @@ if __name__ == '__main__':
             next_obs_n, reward_n, done_n, info_n = env.step(act_n)
             done = all(done_n)
 
+            # print(obs_n, act_n)
             flag = dataset.push(obs_n, act_n)
 
             obs_n = next_obs_n

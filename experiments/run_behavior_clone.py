@@ -69,19 +69,23 @@ if __name__ == '__main__':
     dataset = Dataset(args.scenario, num_agents, args.batch_size)
     dataset.load_data(args.data_dir)
     if len(dataset) < args.batch_size:
-        print("the size of data is less than the batch_size!")
+        print("the size of dataset {} is less than the batch_size {}!".format(len(dataset), args.batch_size))
         exit(0)
 
     if not is_evaluate:
         summary_dict = dict()
         # initialize summary
         summary_loss = [None for _ in range(num_agents)]
+        summary_reward = [None for _ in range(num_agents)]
         for i in range(num_agents):
             summary_loss[i] = tf.placeholder(tf.float32, None)
+            summary_reward[i] = tf.placeholder(tf.float32, None)
 
             tf.summary.scalar('Loss-{}'.format(i), summary_loss[i])
+            tf.summary.scalar('Reward-{}'.format(i), summary_reward[i])
 
         summary_dict['loss'] = summary_loss
+        summary_dict['reward'] = summary_reward
 
         merged = tf.summary.merge_all()
 
@@ -104,8 +108,8 @@ if __name__ == '__main__':
     t_start = time.time()
     total_step = 0
     epochs = len(dataset) // batch_size 
-    if not is_evaluate:
-        for iteration in range(args.iterations):  # episode
+    for iteration in range(args.iterations):  # episode
+        if not is_evaluate:
             loss = [[] for _ in range(num_agents)]
             # shuffle dataset
             dataset.shuffle()
@@ -114,40 +118,45 @@ if __name__ == '__main__':
                 # select sampls
                 batch_obs_n, batch_act_n = dataset.next()
 
+                # print(batch_obs_n, batch_act_n)
                 info_n = bc.train(obs=batch_obs_n, tar_act=batch_act_n)
-                loss = map(lambda x, y: y + [x], info_n['loss'], loss)
+                loss = list(map(lambda x, y: y + [x], info_n['loss'], loss))
 
             loss = list(map(lambda x: round(sum(x) / len(x), 3), loss))
             feed_dict = dict()
             feed_dict.update(zip(summary_dict['loss'], loss))
-            summary = sess.run(merged, feed_dict=feed_dict)
-            summary_writer.add_summary(summary, iteration)
 
             if (iteration+1) % args.save_interval == 0:
                 bc.save(args.save_dir+args.scenario, iteration+1, args.max_to_keep)
                 print("\n---- iteration: {} | [loss]: {} | [inter-time]: {}".format(iteration+1, loss, round(time.time()-t_start),4))
                 t_start = time.time()
 
-    # =========================== start evaluating =========================== #
+        # =========================== start evaluating =========================== #
 
-    num_episodes = 100
-    max_episode_len = 25
-    episode_r_sum = []
-    for ep in range(0, num_episodes):
-        obs_n = env.reset()
-        episode_r_n = [0. for _ in range(num_agents)]
-        for step in range(0, max_episode_len):
-            if is_render:
-                env.render(mode=None)
-            act_n = bc.act(obs_n)
-            next_obs_n, reward_n, done_n, info_n = env.step(act_n)
-            done = all(done_n)
-            obs_n = next_obs_n
-            episode_r_n = list(map(operator.add, episode_r_n, reward_n))
-        # print("\n--- episode-{} | [reward]: {} | [sum-reward]: {}".format(ep, episode_r_n, np.sum(episode_r_n)))
-        print("\n--- episode-{} | [sum-reward]: {}".format(ep, np.sum(episode_r_n)))
-        episode_r_sum.append(np.sum(episode_r_n))
-    print("\n--- average reward {}".format(np.mean(episode_r_sum)))
+        num_episodes = 100
+        max_episode_len = 25
+        episode_r_sum = []
+        episode_r_all = []
+        for ep in range(0, num_episodes):
+            obs_n = env.reset()
+            episode_r_n = [0. for _ in range(num_agents)]
+            for step in range(0, max_episode_len):
+                if is_render:
+                    env.render(mode=None)
+                act_n = bc.act(obs_n)
+                next_obs_n, reward_n, done_n, info_n = env.step(act_n)
+                done = all(done_n)
+                obs_n = next_obs_n
+                episode_r_n = list(map(operator.add, episode_r_n, reward_n))
+            # print("\n--- episode-{} | [reward]: {} | [sum-reward]: {}".format(ep, episode_r_n, np.sum(episode_r_n)))
+            # print("\n--- episode-{} | [sum-reward]: {}".format(ep, np.sum(episode_r_n)))
+            episode_r_sum.append(np.sum(episode_r_n))
+            episode_r_all.append(episode_r_n)
+        print("\n--- iteration: {} | average reward: {}".format(iteration, np.mean(episode_r_sum)))
+        if not is_evaluate:
+            feed_dict.update(zip(summary_dict['reward'], np.mean(episode_r_all, axis=0)))
+            summary = sess.run(merged, feed_dict=feed_dict)
+            summary_writer.add_summary(summary, iteration)
 
     env.close()
     summary_writer.close()
