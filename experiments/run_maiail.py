@@ -98,7 +98,7 @@ if __name__ == '__main__':
 
         merged = tf.summary.merge_all()
 
-        log_dir = args.log_dir + args.scenario
+        log_dir = args.log_dir + args.scenario + '/' + args.exp_name
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
         else:

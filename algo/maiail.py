@@ -249,7 +249,6 @@ class MAIAIL:
             # tmp = zip(*zip(*buffer_data[i]))
             # buffer_data[i] = list(map(lambda x,y:Transition(x[0], x[1], x[2], y, x[4]), tmp, reward_n[i]))
         self.maddpg.replay_buffer.set_data(buffer_data)
-        # print(buffer_data[0])
 
         pa_loss = [0.0] * self.n_agent
         pc_loss = [0.0] * self.n_agent
