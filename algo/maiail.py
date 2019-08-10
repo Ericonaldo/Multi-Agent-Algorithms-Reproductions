@@ -59,7 +59,8 @@ class Discriminator(BaseModel):
             self._train_op = optimizer.minimize(self._loss)
 
         self.expert_reward = tf.log(tf.nn.sigmoid(self.logit_1)+1e-8)
-        self.reward = tf.expand_dims(self.alpha_i,-1)  * tf.log(tf.nn.sigmoid(self.logit_2)+1e-8)
+        self.reward = tf.log(tf.nn.sigmoid(self.logit_2)+1e-8)
+        # self.reward = tf.expand_dims(self.alpha_i,-1)  * tf.log(tf.nn.sigmoid(self.logit_2)+1e-8)
         # self.reward = -tf.expand_dims(self.alpha_i,-1) * tf.log(1-tf.nn.sigmoid(self.logit_2)+1e-8)
 
     def _construct(self, input_ph, norm=False):
@@ -281,6 +282,12 @@ class MAIAIL:
 
         d_loss = [_  / self.d_step for _ in d_loss]
 
+        obs_n, act_n = self.learning_dataset.next(5)
+        print("agent-reward-D: {}".format(self.madcmt.get_reward(obs_n, act_n, expert_pdf, agent_pdf)))
+        obs_en, act_en = self.expert_dataset.next(5)
+        print("expert-reward-D: {}".format(self.madcmt.get_expert_reward(obs_en, act_en)))
+
+        """
         # add reward to maddpg's replay buffer
         buffer_data = self.maddpg.replay_buffer.get_data()
         buffer_obs_n = [None for _ in range(self.n_agent)]
@@ -290,11 +297,6 @@ class MAIAIL:
             buffer_act_n[i] = list(map(lambda x:x[1], buffer_data[i]))
         reward_n = self.madcmt.get_reward(buffer_obs_n, buffer_act_n, expert_pdf, agent_pdf)
 
-        obs_n, act_n = self.learning_dataset.next(5)
-        print("agent-reward-D: {}".format(self.madcmt.get_reward(obs_n, act_n, expert_pdf, agent_pdf)))
-        obs_en, act_en = self.expert_dataset.next(5)
-        print("expert-reward-D: {}".format(self.madcmt.get_expert_reward(obs_en, act_en)))
-
         for i in range(self.n_agent):
             for j in range(len(reward_n[i])):
                 # print("raw-reward:{} | new-reward: {}".format(buffer_data[i][j][3], reward_n[i][j]))
@@ -302,6 +304,7 @@ class MAIAIL:
             # tmp = zip(*zip(*buffer_data[i]))
             # buffer_data[i] = list(map(lambda x,y:Transition(x[0], x[1], x[2], y, x[4]), tmp, reward_n[i]))
         self.maddpg.replay_buffer.set_data(buffer_data)
+        """
 
         ## p step
         # p_loss = [0.] * self.n_agent
@@ -309,7 +312,7 @@ class MAIAIL:
         pc_loss = [0.0] * self.n_agent
         print("train policy for {} times".format(self.p_step))
         for _ in range(self.p_step): # train policy 6 times
-            t_info = self.maddpg.train()
+            t_info = self.maddpg.train(reward_func=self.madcmt.get_reward, pdfs=[expert_pdf, agent_pdf])
             pa_loss = map(operator.add, pa_loss, t_info['a_loss'])
             pc_loss = map(operator.add, pc_loss, t_info['c_loss'])
 

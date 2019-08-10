@@ -44,8 +44,8 @@ if __name__ == '__main__':
     parser.add_argument("--iterations", type=int, default=1000, help="number of training iterations")
     # parser.add_argument("--num_agents", type=int, default=2, help="number of agents")
     # Core training parameters
-    parser.add_argument("--p_step", type=float, default=4, help="training times of policy network")
-    parser.add_argument("--d_step", type=float, default=1, help="training times of discriminator")
+    parser.add_argument("--p_step", type=float, default=6, help="training times of policy network")
+    parser.add_argument("--d_step", type=float, default=2, help="training times of discriminator")
     parser.add_argument("--units", type=int, default=128, help="the hidden units of the network")
     parser.add_argument("--lr", type=float, default=1e-2, help="learning rate for Adam optimizer")
     parser.add_argument("--entcoeff", type=float, default=0.001, help="the coefficient of the entropy loss of the discriminators")
@@ -91,7 +91,7 @@ if __name__ == '__main__':
     # learning_dataset = Dataset(args.scenario, num_agents, args.batch_size)
     expert_dataset = Dataset(args.scenario, num_agents, args.batch_size, capacity=args.dataset_size)
     expert_dataset.load_data(args.data_dir)
-    maiail = MAIAIL(sess, env, args.scenario, args.exp_name, num_agents, expert_dataset, args.batch_size, args.entcoeff, args.lr, args.gamma, args.tau, args.memory_size)
+    maiail = MAIAIL(sess, env, args.scenario, args.exp_name, num_agents, expert_dataset, args.batch_size, args.entcoeff, args.lr, args.gamma, args.tau, args.memory_size, args.p_step, args.d_step, args.units)
 
     if not is_evaluate:
         # initialize summary

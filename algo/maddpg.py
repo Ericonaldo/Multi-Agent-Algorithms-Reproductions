@@ -432,7 +432,7 @@ class MADDPG(object):
 
         return a_loss, c_loss
 
-    def train(self):
+    def train(self, reward_func=None, pdfs=None):
         """ Run multiple training steps
 
         :return: mean_a_loss, mean_c_loss: mean of actor loss and critic loss for N agents of n_batch
@@ -449,8 +449,21 @@ class MADDPG(object):
 
         for i in range(n_batch):
             batch_list = self.replay_buffer.sample()
-            a_loss, c_loss = self.train_step(batch_list)
 
+            if (reward_func is not None) and (pdfs is not None):
+                expert_pdf, agent_pdf = pdfs
+                # add reward to maddpg's replay buffer
+                batch_obs_n = [None for _ in range(self.n_agent)]
+                batch_act_n = [None for _ in range(self.n_agent)]
+                for i in range(self.n_agent):
+                    batch_obs_n[i] = batch_list[i][0]
+                    batch_act_n[i] = batch_list[i][1]
+                # print(np.shape(batch_list), np.shape(batch_obs_n), np.shape(batch_act_n))
+                reward_n = reward_func(batch_obs_n, batch_act_n, expert_pdf, agent_pdf)
+                for i in range(self.n_agent):
+                    batch_list[i] = Transition(batch_list[i][0], batch_list[i][1], batch_list[i][2], reward_n[i], batch_list[i][4])
+
+            a_loss, c_loss = self.train_step(batch_list)
             mean_a_loss = map(operator.add, mean_a_loss, a_loss)
             mean_c_loss = map(operator.add, mean_c_loss, c_loss)
 
