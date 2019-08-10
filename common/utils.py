@@ -162,14 +162,17 @@ class Dataset(object):
         # self._actions = tmp_a
         self._point = 0
 
-    def next(self):
-        if self._point+self.batch_size > self._size:
-            batch_obs_n = list(map(lambda x: x[-self.batch_size:], self._observations))
-            batch_act_n = list(map(lambda x: x[-self.batch_size:], self._actions))
+    def next(self, batch_size=None):
+        if batch_size is None:
+            batch_size = self.batch_size
+        if self._point+batch_size > self._size:
+            batch_obs_n = list(map(lambda x: x[-batch_size:], self._observations))
+            batch_act_n = list(map(lambda x: x[-batch_size:], self._actions))
+            self._point = 0
         else:
-            batch_obs_n = list(map(lambda x: x[self._point:self._point+self.batch_size], self._observations))
-            batch_act_n = list(map(lambda x: x[self._point:self._point+self.batch_size], self._actions))
-        self._point += self.batch_size
+            batch_obs_n = list(map(lambda x: x[self._point:self._point+batch_size], self._observations))
+            batch_act_n = list(map(lambda x: x[self._point:self._point+batch_size], self._actions))
+        self._point += batch_size
 
         return batch_obs_n, batch_act_n
 

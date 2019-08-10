@@ -9,9 +9,9 @@ from common.utils import flatten, softmax
 from common.utils import BaseModel, Dataset, Transition
 from algo.maddpg import MADDPG
 
-train_policy_times = 10
-train_discriminator_times = 1
-units = 128
+# train_policy_times = 6
+# train_discriminator_times = 2
+# units = 128
 
 def logsigmoid(a):
     '''Equivalent to tf.log(tf.sigmoid(a))'''
@@ -22,29 +22,31 @@ def logit_bernoulli_entropy(logits):
     return ent
 
 class Discriminator(BaseModel):
-    def __init__(self, sess, expert_s_a, agent_s_a, entcoeff=0.001, lr=1e-2, name=None, agent_id=None):
+    def __init__(self, sess, expert_s_a_n, agent_s_a_n, alpha_i, entcoeff=0.001, lr=1e-2, name=None, agent_id=None, units=128):
         super().__init__(name)
 
         self.sess = sess
         self.agent_id = agent_id
+        self.units = units
 
         self._loss = None
         self._train_op = None
 
         self.scope = tf.get_variable_scope().name
 
-        self.expert_s_a = expert_s_a
-        self.agent_s_a = agent_s_a
+        self.expert_s_a_n = expert_s_a_n
+        self.agent_s_a_n = agent_s_a_n
+        self.alpha_i = alpha_i
 
         with tf.variable_scope('network') as network_scope:
-            self.logit_1 = self._construct(input_ph=expert_s_a)
+            self.logit_1 = self._construct(input_ph=expert_s_a_n)
             network_scope.reuse_variables()  # share parameter
-            self.logit_2 = self._construct(input_ph=agent_s_a)
+            self.logit_2 = self._construct(input_ph=agent_s_a_n)
 
         with tf.variable_scope('loss'):
             loss_expert = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_1, labels=tf.ones_like(self.logit_1)))
             # loss_expert = tf.reduce_mean(tf.log(tf.nn.sigmoid(self.prob_1)+1e-8))
-            loss_agent = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_2, labels=tf.zeros_like(self.logit_2)))
+            loss_agent = tf.reduce_mean(tf.expand_dims(self.alpha_i,-1) * tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_2, labels=tf.zeros_like(self.logit_2)))
             # loss_agent = tf.reduce_mean(tf.log(1 - self.prob_2+1e-8))
             logits = tf.concat([self.logit_1, self.logit_2], 0)
             entropy = tf.reduce_mean(logit_bernoulli_entropy(logits))
@@ -56,15 +58,16 @@ class Discriminator(BaseModel):
             # self._train_op = optimizer.apply_gradients(grad_vars)
             self._train_op = optimizer.minimize(self._loss)
 
-        self.reward = tf.log(tf.nn.sigmoid(self.logit_2)+1e-8)
-        # self.reward = -tf.log(1-tf.nn.sigmoid(self.logit_2)+1e-8)
+        self.expert_reward = tf.log(tf.nn.sigmoid(self.logit_1)+1e-8)
+        self.reward = tf.expand_dims(self.alpha_i,-1)  * tf.log(tf.nn.sigmoid(self.logit_2)+1e-8)
+        # self.reward = -tf.expand_dims(self.alpha_i,-1) * tf.log(1-tf.nn.sigmoid(self.logit_2)+1e-8)
 
     def _construct(self, input_ph, norm=False):
-        l1 = tf.layers.dense(inputs=input_ph, units=units, activation=tf.nn.leaky_relu, name='l1')
+        l1 = tf.layers.dense(inputs=input_ph, units=self.units, activation=tf.nn.leaky_relu, name='l1')
         if norm: l1 = tc.layers.layer_norm(l1)
-        l2 = tf.layers.dense(inputs=l1, units=units, activation=tf.nn.leaky_relu, name='l2')
+        l2 = tf.layers.dense(inputs=l1, units=self.units, activation=tf.nn.leaky_relu, name='l2')
         if norm: l2 = tc.layers.layer_norm(l2)
-        l3 = tf.layers.dense(inputs=l2, units=units // 2, activation=tf.nn.leaky_relu, name='l3')
+        l3 = tf.layers.dense(inputs=l2, units=self.units // 2, activation=tf.nn.leaky_relu, name='l3')
         out = tf.layers.dense(inputs=l3, units=1, activation=tf.identity, name='prob')
 
         return out
@@ -76,6 +79,13 @@ class Discriminator(BaseModel):
 
     def get_reward(self, feed_dict):
         reward = self.sess.run(self.reward, feed_dict=feed_dict)
+        # print(self.sess.run(tf.nn.sigmoid(self.logit_2), feed_dict=feed_dict))
+        
+        return reward.reshape((-1,))
+
+    def get_expert_reward(self, feed_dict):
+        reward = self.sess.run(self.expert_reward, feed_dict=feed_dict)
+        # print(self.sess.run(tf.nn.sigmoid(self.logit_2), feed_dict=feed_dict))
         
         return reward.reshape((-1,))
 
@@ -84,7 +94,7 @@ class Discriminator(BaseModel):
         return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.scope)
 
 class MADiscriminator(object):
-    def __init__(self, sess, env, scenario, name, n_agent, expert_dataset, batch_size=512, entcoeff=0.001, lr=1e-2, memory_size = 10**4):
+    def __init__(self, sess, env, scenario, name, n_agent, expert_dataset, batch_size=512, entcoeff=0.001, lr=1e-2, memory_size = 10**4, units=128):
         self.name = name
         self.env = env
         self.sess = sess
@@ -104,28 +114,47 @@ class MADiscriminator(object):
         self.expert_act_phs_n = [tf.placeholder(dtype=tf.float32, shape=(None,) + act_space[i]) for i in range(n_agent)]
         self.expert_obs_n = tf.concat(self.expert_obs_phs_n, axis=1)
         self.expert_act_n = tf.concat(self.expert_act_phs_n, axis=1)
-        self.expert_s_a = tf.concat([self.expert_obs_n, self.expert_act_n], axis=1)
+        self.expert_s_a_n = tf.concat([self.expert_obs_n, self.expert_act_n], axis=1)
 
         self.agent_obs_phs_n = [tf.placeholder(dtype=tf.float32, shape=(None,) + obs_space[i]) for i in range(n_agent)]
         self.agent_act_phs_n = [tf.placeholder(dtype=tf.float32, shape=(None,) + act_space[i]) for i in range(n_agent)]
         self.agent_obs_n = tf.concat(self.agent_obs_phs_n, axis=1)
         self.agent_act_n = tf.concat(self.agent_act_phs_n, axis=1)
-        self.agent_s_a = tf.concat([self.agent_obs_n, self.agent_act_n], axis=1)
+        self.agent_s_a_n = tf.concat([self.agent_obs_n, self.agent_act_n], axis=1)
+
+        self.alpha_n = [tf.placeholder(dtype=tf.float32, shape=(None,)) for i in range(n_agent)]
 
         # Discriminator for each agents
         with tf.variable_scope(self.name):
             for i in range(self.env.n):
                 print("initialize discriminator for agent {} ...".format(i))
                 with tf.variable_scope("dicriminator_{}".format(i)):
-                    self.discriminators.append(Discriminator(self.sess, self.expert_s_a, self.agent_s_a, lr=lr, name=name, agent_id=i))
+                    self.discriminators.append(Discriminator(self.sess, self.expert_s_a_n, self.agent_s_a_n, self.alpha_n[i], lr=lr, name=name, agent_id=i, units=units))
 
-    def get_reward(self, obs_n, act_n):
+    def get_reward(self, obs_n, act_n, expert_pdf, agent_pdf):
         reward_n = [None] * self.n_agent
         feed_dict = dict()
         feed_dict.update(zip(self.agent_obs_phs_n, obs_n))
         feed_dict.update(zip(self.agent_act_phs_n, act_n))
         for i in range(self.n_agent):
+            rho_1 = 1.0 * agent_pdf[i].prob(obs_n[i], act_n[i]) / expert_pdf[i].prob(obs_n[i], act_n[i])
+            rho_2 = 1.0/agent_pdf[i].prob(obs_n[i], act_n[i])
+            for j in range(self.n_agent):
+                rho_1 *= expert_pdf[j].prob(obs_n[j], act_n[j])
+                rho_2 *= agent_pdf[j].prob(obs_n[j], act_n[j])
+            alpha = rho_1 / rho_2
+            # print("rho_1:{} | rho_2:{} | alpha:{}".format(rho_1, rho_2, alpha))
+            feed_dict.update({self.alpha_n[i]: alpha})
             reward_n[i] = self.discriminators[i].get_reward(feed_dict)
+        return reward_n
+
+    def get_expert_reward(self, obs_n, act_n):
+        reward_n = [None] * self.n_agent
+        feed_dict = dict()
+        feed_dict.update(zip(self.expert_obs_phs_n, obs_n))
+        feed_dict.update(zip(self.expert_act_phs_n, act_n))
+        for i in range(self.n_agent):
+            reward_n[i] = self.discriminators[i].get_expert_reward(feed_dict)
         return reward_n
 
     def store_dataset(self, obs_n, act_n):
@@ -137,9 +166,10 @@ class MADiscriminator(object):
     def clear_dataset(self):
         self.learning_dataset.clear()
 
-    def train(self):
+    def train(self, expert_pdf, agent_pdf):
         loss = [0.0] * self.n_agent
-        train_epochs = len(self.learning_dataset) // self.batch_size
+        # train_epochs = len(self.learning_dataset) // self.batch_size
+        train_epochs = 1
         # shuffle dataset
         self.expert_dataset.shuffle()
         self.learning_dataset.shuffle()
@@ -153,19 +183,31 @@ class MADiscriminator(object):
             feed_dict.update(zip(self.agent_act_phs_n, agent_batch_act_n))
             feed_dict.update(zip(self.expert_obs_phs_n, expert_batch_obs_n))
             feed_dict.update(zip(self.expert_act_phs_n, expert_batch_act_n))
+            feed_dict.update(zip(self.expert_act_phs_n, expert_batch_act_n))
 
             for i in range(self.n_agent):
+                rho_1 = 1.0 * agent_pdf[i].prob(agent_batch_obs_n[i], agent_batch_act_n[i]) / expert_pdf[i].prob(agent_batch_obs_n[i], agent_batch_act_n[i])
+                rho_2 = 1.0/agent_pdf[i].prob(agent_batch_obs_n[i], agent_batch_act_n[i])
+                for j in range(self.n_agent):
+                    rho_1 *= expert_pdf[j].prob(agent_batch_obs_n[j], agent_batch_act_n[j])
+                    rho_2 *= agent_pdf[j].prob(agent_batch_obs_n[j], agent_batch_act_n[j])
+                alpha = rho_1 / rho_2
+                # print("rho_1:{} | rho_2:{} | alpha:{}".format(rho_1, rho_2, alpha))
+                feed_dict.update({self.alpha_n[i]: alpha})
                 loss[i]+=self.discriminators[i].train(feed_dict)
             
         return loss
 
 class MAIAIL:
-    def __init__(self, sess, env, scenario, name, n_agent, expert_dataset, batch_size=512, entcoeff=0.001, lr=1e-2, gamma=0.99, tau=0.01, memory_size=10**4):
+    def __init__(self, sess, env, scenario, name, n_agent, expert_dataset, batch_size=512, entcoeff=0.001, lr=1e-2, gamma=0.99, tau=0.01, memory_size=10**4, p_step=3, d_step=1, units=128):
         self.name = name
         self.sess = sess
         self.env = env
         self.n_agent = n_agent
         self.batch_size = batch_size
+        self.expert_dataset = expert_dataset
+        self.p_step = p_step
+        self.d_step = d_step
 
         self.maddpg = None # agents 
         self.madcmt = None # discriminators
@@ -180,7 +222,9 @@ class MAIAIL:
             # Discriminator
             print("initialize discriminators ...")
             discri_name = "ma-discriminator"
-            self.madcmt = MADiscriminator(self.sess, env, scenario=scenario, name=discri_name, n_agent=n_agent, expert_dataset=expert_dataset, batch_size=batch_size, entcoeff=entcoeff, lr=lr, memory_size=memory_size)
+            self.madcmt = MADiscriminator(self.sess, env, scenario=scenario, name=discri_name, n_agent=n_agent, expert_dataset=expert_dataset, batch_size=batch_size, entcoeff=entcoeff, lr=lr, memory_size=memory_size, units=units)
+
+        self.learning_dataset = self.madcmt.learning_dataset
 
     def init(self):
         self.sess.run(tf.global_variables_initializer())
@@ -225,16 +269,17 @@ class MAIAIL:
             file_path = dir_name
             saver.restore(self.sess, tf.train.latest_checkpoint(file_path))
 
-    def train(self):
-        # p_loss = [0.] * self.n_agent
+    def train(self, expert_pdf, agent_pdf):
+
+        ## d step
         d_loss = [0.] * self.n_agent
 
-        print("train discriminators for {} times".format(train_discriminator_times))
-        for _ in range(train_discriminator_times): # train Discriminators 2 times
-            loss = self.madcmt.train()
+        print("train discriminators for {} times".format(self.d_step))
+        for _ in range(self.d_step): # train Discriminators 2 times
+            loss = self.madcmt.train(expert_pdf, agent_pdf)
             d_loss = list(map(operator.add, loss, d_loss))
 
-        d_loss = [_  / train_discriminator_times for _ in d_loss]
+        d_loss = [_  / self.d_step for _ in d_loss]
 
         # add reward to maddpg's replay buffer
         buffer_data = self.maddpg.replay_buffer.get_data()
@@ -243,32 +288,43 @@ class MAIAIL:
         for i in range(self.n_agent):
             buffer_obs_n[i] = list(map(lambda x:x[0], buffer_data[i]))
             buffer_act_n[i] = list(map(lambda x:x[1], buffer_data[i]))
-        reward_n = self.madcmt.get_reward(buffer_obs_n, buffer_act_n)
+        reward_n = self.madcmt.get_reward(buffer_obs_n, buffer_act_n, expert_pdf, agent_pdf)
+
+        print("agent-reward-D: {}".format(self.madcmt.get_reward(buffer_obs_n, buffer_act_n, expert_pdf, agent_pdf)))
+        obs_en, act_en = self.expert_dataset.next(5)
+        print("expert-reward-D: {}".format(self.madcmt.get_expert_reward(obs_en, act_en)))
+
         for i in range(self.n_agent):
             for j in range(len(reward_n[i])):
+                # print("raw-reward:{} | new-reward: {}".format(buffer_data[i][j][3], reward_n[i][j]))
                 buffer_data[i][j] = Transition(buffer_data[i][j][0], buffer_data[i][j][1], buffer_data[i][j][2], reward_n[i][j], buffer_data[i][j][4])
             # tmp = zip(*zip(*buffer_data[i]))
             # buffer_data[i] = list(map(lambda x,y:Transition(x[0], x[1], x[2], y, x[4]), tmp, reward_n[i]))
         self.maddpg.replay_buffer.set_data(buffer_data)
 
+        ## p step
+        # p_loss = [0.] * self.n_agent
         pa_loss = [0.0] * self.n_agent
         pc_loss = [0.0] * self.n_agent
-        print("train policy for {} times".format(train_policy_times))
-        for _ in range(train_policy_times): # train policy 6 times
+        print("train policy for {} times".format(self.p_step))
+        for _ in range(self.p_step): # train policy 6 times
             t_info = self.maddpg.train()
             pa_loss = map(operator.add, pa_loss, t_info['a_loss'])
             pc_loss = map(operator.add, pc_loss, t_info['c_loss'])
 
-        pa_loss = [_/train_policy_times for _ in pa_loss]
-        pc_loss = [_/train_policy_times for _ in pc_loss]
+        pa_loss = [_/self.p_step for _ in pa_loss]
+        pc_loss = [_/self.p_step for _ in pc_loss]
+
+
         # clear buffer and dataset
         self.maddpg.clear_buffer()
         self.madcmt.clear_dataset()
 
         return {'d_loss': d_loss, 'pa_loss': pa_loss, 'pc_loss': pc_loss} 
 
-    def store_data(self, state_n, action_n, next_state_n, done_n):
-        flag1 = self.maddpg.store_trans(state_n, action_n, next_state_n, np.zeros((self.n_agent,)), done_n)
+    def store_data(self, state_n, action_n, next_state_n, reward_n, done_n):
+        # flag1 = self.maddpg.store_trans(state_n, action_n, next_state_n, np.zeros((self.n_agent,)), done_n)
+        flag1 = self.maddpg.store_trans(state_n, action_n, next_state_n, reward_n, done_n)
         flag2 = self.madcmt.store_dataset(state_n, action_n)
 
         return (flag1 or flag2)
