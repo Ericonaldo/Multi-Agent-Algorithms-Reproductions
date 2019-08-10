@@ -290,7 +290,8 @@ class MAIAIL:
             buffer_act_n[i] = list(map(lambda x:x[1], buffer_data[i]))
         reward_n = self.madcmt.get_reward(buffer_obs_n, buffer_act_n, expert_pdf, agent_pdf)
 
-        print("agent-reward-D: {}".format(self.madcmt.get_reward(buffer_obs_n, buffer_act_n, expert_pdf, agent_pdf)))
+        obs_n, act_n = self.learning_dataset.next(5)
+        print("agent-reward-D: {}".format(self.madcmt.get_reward(obs_n, act_n, expert_pdf, agent_pdf)))
         obs_en, act_en = self.expert_dataset.next(5)
         print("expert-reward-D: {}".format(self.madcmt.get_expert_reward(obs_en, act_en)))
 

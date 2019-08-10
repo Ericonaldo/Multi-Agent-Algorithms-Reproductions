@@ -33,14 +33,14 @@ class KDEEstimator(object):
 
     def prob(self, s, a):
         x = np.concatenate((s, a), axis=-1)
-        return np.exp(self.kde.score_samples(x)) # x.shape: [None, act+obs
+        return np.exp(self.kde.score_samples(x)) # x.shape: [None, act+obs]
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser("Behavioral cloning experiments")
     # Environment
     parser.add_argument("--scenario", type=str, default="simple", help="name of the scenario script")
     parser.add_argument("--max_episode_len", type=int, default=25, help="maximum episode length")
-    parser.add_argument("--sample_episodes", type=int, default=100, help="number of sampling episodes")
+    parser.add_argument("--sample_episodes", type=int, default=1000, help="number of sampling episodes")
     parser.add_argument("--iterations", type=int, default=1000, help="number of training iterations")
     # parser.add_argument("--num_agents", type=int, default=2, help="number of agents")
     # Core training parameters
@@ -204,7 +204,7 @@ if __name__ == '__main__':
             for i in range(num_agents):
                 agent_pdf[i] = KDEEstimator("agent", i)
                 agent_pdf[i].fit(maiail.learning_dataset.observations[i], maiail.learning_dataset.actions[i])
-            print("fitted the pdf of agent (s,a) pair for each agent")
+            print("updated the pdf of agent (s,a) pair for each agent")
 
             feed_dict = dict()
             feed_dict.update(zip(summary_dict['reward'], all_episode_r_n))
