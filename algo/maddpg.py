@@ -5,7 +5,7 @@ import tensorflow as tf
 import numpy as np
 import tensorflow.contrib as tc
 
-from common.utils import BunchBuffer, Transition
+from common.buffer import BunchBuffer, Transition
 from common.utils import flatten, softmax
 from common.utils import BaseModel
 

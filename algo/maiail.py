@@ -6,7 +6,8 @@ import tensorflow as tf
 import tensorflow.contrib as tc
 
 from common.utils import flatten, softmax
-from common.utils import BaseModel, Dataset, Transition
+from common.utils import BaseModel
+from common.buffer import Dataset, Transition
 from algo.maddpg import MADDPG
 
 # train_policy_times = 6
@@ -52,6 +53,8 @@ class Discriminator(BaseModel):
             entropy = tf.reduce_mean(logit_bernoulli_entropy(logits))
             entropy_loss = -entcoeff*entropy
             self._loss = loss_expert + loss_agent + entropy_loss
+            self._loss = loss_expert + loss_agent
+
 
             optimizer = tf.train.AdamOptimizer(lr)
             # grad_vars = optimizer.compute_gradients(self._loss, self.trainable_variables)
@@ -59,7 +62,8 @@ class Discriminator(BaseModel):
             self._train_op = optimizer.minimize(self._loss)
 
         self.expert_reward = tf.log(tf.nn.sigmoid(self.logit_1)+1e-8)
-        self.reward = tf.log(tf.nn.sigmoid(self.logit_2)+1e-8)
+        # self.reward = tf.log(tf.nn.sigmoid(self.logit_2)+1e-8)
+        self.reward = -tf.log(1-tf.nn.sigmoid(self.logit_2)+1e-8)
         # self.reward = tf.expand_dims(self.alpha_i,-1)  * tf.log(tf.nn.sigmoid(self.logit_2)+1e-8)
         # self.reward = -tf.expand_dims(self.alpha_i,-1) * tf.log(1-tf.nn.sigmoid(self.logit_2)+1e-8)
 
@@ -95,7 +99,7 @@ class Discriminator(BaseModel):
         return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.scope)
 
 class MADiscriminator(object):
-    def __init__(self, sess, env, scenario, name, n_agent, expert_dataset, batch_size=512, entcoeff=0.001, lr=1e-2, memory_size = 10**4, units=128):
+    def __init__(self, sess, env, scenario, name, n_agent, expert_dataset, batch_size=512, entcoeff=0.001, lr=1e-2, memory_size = 10**4, units=128, lbd=1):
         self.name = name
         self.env = env
         self.sess = sess
@@ -103,6 +107,7 @@ class MADiscriminator(object):
         self.expert_dataset = expert_dataset
         self.learning_dataset = Dataset(scenario, n_agent, batch_size)
         self.batch_size = batch_size
+        self.lbd = lbd
 
         self.discriminators = []
         self._loss = None
@@ -139,11 +144,14 @@ class MADiscriminator(object):
         feed_dict.update(zip(self.agent_act_phs_n, act_n))
         for i in range(self.n_agent):
             rho_1 = 1.0 * agent_pdf[i].prob(obs_n[i], act_n[i]) / expert_pdf[i].prob(obs_n[i], act_n[i])
-            rho_2 = 1.0/agent_pdf[i].prob(obs_n[i], act_n[i])
+            rho_2 = 1.0
             for j in range(self.n_agent):
                 rho_1 *= expert_pdf[j].prob(obs_n[j], act_n[j])
                 rho_2 *= agent_pdf[j].prob(obs_n[j], act_n[j])
-            alpha = rho_1 / rho_2
+            # alpha = self.lbd * np.clip(rho_1 / rho_2, 1e-2, 1)
+            # alpha = self.lbd * np.minimum(rho_1 / rho_2, 1)
+            # alpha = self.lbd * np.maximum(rho_1 / rho_2, 1e-2)
+            alpha = self.lbd * 1.0 * rho_1 / rho_2
             # print("rho_1:{} | rho_2:{} | alpha:{}".format(rho_1, rho_2, alpha))
             feed_dict.update({self.alpha_n[i]: alpha})
             reward_n[i] = self.discriminators[i].get_reward(feed_dict)
@@ -188,11 +196,14 @@ class MADiscriminator(object):
 
             for i in range(self.n_agent):
                 rho_1 = 1.0 * agent_pdf[i].prob(agent_batch_obs_n[i], agent_batch_act_n[i]) / expert_pdf[i].prob(agent_batch_obs_n[i], agent_batch_act_n[i])
-                rho_2 = 1.0/agent_pdf[i].prob(agent_batch_obs_n[i], agent_batch_act_n[i])
+                rho_2 = 1.0
                 for j in range(self.n_agent):
                     rho_1 *= expert_pdf[j].prob(agent_batch_obs_n[j], agent_batch_act_n[j])
                     rho_2 *= agent_pdf[j].prob(agent_batch_obs_n[j], agent_batch_act_n[j])
-                alpha = rho_1 / rho_2
+                # alpha = self.lbd * np.clip(rho_1 / rho_2, 1e-2, 1)
+                # alpha = self.lbd * np.minimum(rho_1 / rho_2, 1)
+                # alpha = self.lbd * np.maximum(rho_1 / rho_2, 1e-2)
+                alpha = self.lbd * 1.0 * rho_1 / rho_2
                 # print("rho_1:{} | rho_2:{} | alpha:{}".format(rho_1, rho_2, alpha))
                 feed_dict.update({self.alpha_n[i]: alpha})
                 loss[i]+=self.discriminators[i].train(feed_dict)
@@ -200,7 +211,7 @@ class MADiscriminator(object):
         return loss
 
 class MAIAIL:
-    def __init__(self, sess, env, scenario, name, n_agent, expert_dataset, batch_size=512, entcoeff=0.001, lr=1e-2, gamma=0.99, tau=0.01, memory_size=10**4, p_step=3, d_step=1, units=128):
+    def __init__(self, sess, env, scenario, name, n_agent, expert_dataset, batch_size=512, entcoeff=0.001, lr=1e-2, gamma=0.99, tau=0.01, memory_size=10**4, p_step=3, d_step=1, units=128, lbd=1):
         self.name = name
         self.sess = sess
         self.env = env
@@ -209,6 +220,7 @@ class MAIAIL:
         self.expert_dataset = expert_dataset
         self.p_step = p_step
         self.d_step = d_step
+        self.lbd = lbd
 
         self.maddpg = None # agents 
         self.madcmt = None # discriminators
@@ -223,7 +235,7 @@ class MAIAIL:
             # Discriminator
             print("initialize discriminators ...")
             discri_name = "ma-discriminator"
-            self.madcmt = MADiscriminator(self.sess, env, scenario=scenario, name=discri_name, n_agent=n_agent, expert_dataset=expert_dataset, batch_size=batch_size, entcoeff=entcoeff, lr=lr, memory_size=memory_size, units=units)
+            self.madcmt = MADiscriminator(self.sess, env, scenario=scenario, name=discri_name, n_agent=n_agent, expert_dataset=expert_dataset, batch_size=batch_size, entcoeff=entcoeff, lr=lr, memory_size=memory_size, units=units, lbd=lbd)
 
         self.learning_dataset = self.madcmt.learning_dataset
 
@@ -283,8 +295,10 @@ class MAIAIL:
         d_loss = [_  / self.d_step for _ in d_loss]
 
         obs_n, act_n = self.learning_dataset.next(5)
+        # print("agent-(s,a): ({},{})".format(obs_n, act_n))
         print("agent-reward-D: {}".format(self.madcmt.get_reward(obs_n, act_n, expert_pdf, agent_pdf)))
         obs_en, act_en = self.expert_dataset.next(5)
+        # print("expert-(s,a): ({},{})".format(obs_en, act_en))
         print("expert-reward-D: {}".format(self.madcmt.get_expert_reward(obs_en, act_en)))
 
         """

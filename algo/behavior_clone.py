@@ -6,7 +6,8 @@ import tensorflow as tf
 import tensorflow.contrib as tc
 
 from common.utils import flatten, softmax
-from common.utils import BaseModel, Dataset
+from common.utils import BaseModel
+from common.buffer import Dataset
 
 
 units = 64

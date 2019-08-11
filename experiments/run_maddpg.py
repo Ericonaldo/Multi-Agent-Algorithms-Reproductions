@@ -166,7 +166,7 @@ if __name__ == '__main__':
                 break
 
         # every episode
-        episode_r_n = [round(_, 3) for _ in episode_r_n]
+        # episode_r_n = [round(_, 3) for _ in episode_r_n]
         episode_r_all.append(episode_r_n)
         episode_r_all_sum.append(np.sum(episode_r_n))
 
@@ -186,13 +186,13 @@ if __name__ == '__main__':
 
             if (ep+1) % args.save_interval == 0:
                 maddpg.save(args.save_dir+args.scenario, ep+1, args.max_to_keep)
-                print("\n--- episode-{} | [a-loss]: {} | [c-loss]: {} | [mean-reward]: {} | [inter-time]: {}".format(ep+1, a_loss, c_loss, np.mean(episode_r_all_sum[-args.save_interval:], axis=0), round(time.time()-t_start),4))
+                print("\n--- episode-{} | [a-loss]: {} | [c-loss]: {} | [mean-sum-reward]: {} | [inter-time]: {}".format(ep+1, a_loss, c_loss, np.mean(episode_r_all_sum[-args.save_interval:], axis=0), round(time.time()-t_start),4))
                 t_start = time.time()
 
         if is_evaluate:
-            print("\n--- episode-{} | [mean-reward]: {} | [inter-time]: {}".format(ep+1, episode_r_all_sum[-1], round(time.time()-t_start),4))
-            t_start = time.time()
-           
+            print("\n--- episode-{} | [sum-reward]: {}".format(ep+1, episode_r_all_sum[-1]))
+    if is_evaluate:       
+        print("mean sum reward in {} episodes: {}".format(num_episodes, np.mean(episode_r_all_sum)))       
     env.close()
     if not is_evaluate:
         summary_writer.close()

@@ -12,7 +12,7 @@ sys.path.insert(1, os.path.join(sys.path[0], '../ma_env/multiagent-particle-envs
 import multiagent
 import multiagent.scenarios as scenarios
 from multiagent.environment import MultiAgentEnv
-from common.utils import Dataset
+from common.buffer import Dataset
 from algo.behavior_clone import MABehavioralCloning
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -31,7 +31,7 @@ if __name__ == '__main__':
     parser.add_argument("--batch_size", type=int, default=256, help="the batch size to optimize at the same time")
     # Checkpointing & Logging
     parser.add_argument("--exp_name", type=str, default="behavior_clone", help="name of the experiment")
-    parser.add_argument("--save_interval", type=int, default=200, help='Interval episode for saving model(default=400)')
+    parser.add_argument("--save_interval", type=int, default=10, help='Interval episode for saving model(default=400)')
     parser.add_argument("--save_dir", type=str, default="./trained_models/", help="directory in which training state and model should be saved")
     parser.add_argument("--log_dir", type=str, default="./logs/", help="directory of logging")
     parser.add_argument("--restore", action="store_true", default=False)
@@ -108,7 +108,10 @@ if __name__ == '__main__':
     t_start = time.time()
     total_step = 0
     epochs = len(dataset) // batch_size 
-    for iteration in range(args.iterations):  # episode
+    iterations = args.iterations
+    if is_evaluate:
+        iterations = 1
+    for iteration in range(iterations):  # episode
         if not is_evaluate:
             loss = [[] for _ in range(num_agents)]
             # shuffle dataset
@@ -128,7 +131,7 @@ if __name__ == '__main__':
 
             if (iteration+1) % args.save_interval == 0:
                 bc.save(args.save_dir+args.scenario, iteration+1, args.max_to_keep)
-                print("\n---- iteration: {} | [loss]: {} | [inter-time]: {}".format(iteration+1, loss, round(time.time()-t_start),4))
+                print("\n---- iteration: {} | [loss]: {} | [inter-time]: {}".format(iteration, loss, round(time.time()-t_start),4))
                 t_start = time.time()
 
         # =========================== start evaluating =========================== #
@@ -149,16 +152,20 @@ if __name__ == '__main__':
                 obs_n = next_obs_n
                 episode_r_n = list(map(operator.add, episode_r_n, reward_n))
             # print("\n--- episode-{} | [reward]: {} | [sum-reward]: {}".format(ep, episode_r_n, np.sum(episode_r_n)))
-            # print("\n--- episode-{} | [sum-reward]: {}".format(ep, np.sum(episode_r_n)))
             episode_r_sum.append(np.sum(episode_r_n))
             episode_r_all.append(episode_r_n)
-        print("\n--- iteration: {} | average reward: {}".format(iteration, np.mean(episode_r_sum)))
+            if is_evaluate:
+                print("\n--- episode-{} | [mean-sum-reward]: {}".format(ep, np.sum(episode_r_n)))
+
+        print("\n--- iteration: {} | mean sum reward: {}".format(iteration, np.mean(episode_r_sum)))
         if not is_evaluate:
             feed_dict.update(zip(summary_dict['reward'], np.mean(episode_r_all, axis=0)))
             summary = sess.run(merged, feed_dict=feed_dict)
             summary_writer.add_summary(summary, iteration)
 
+    print("mean sum reward in {} episodes: {}".format(num_episodes, np.mean(episode_r_sum)))
+    if not is_evaluate:
+        summary_writer.close()
     env.close()
-    summary_writer.close()
     sess.close()
 
