@@ -12,12 +12,13 @@ sys.path.insert(1, os.path.join(sys.path[0], '../ma_env/multiagent-particle-envs
 import multiagent
 import multiagent.scenarios as scenarios
 from multiagent.environment import MultiAgentEnv
-from common.utils import softmax, BaseAgent
+from common.utils import softmax
+from algo.rule import RuleAgent
 
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser("Random agent experiments")
+    parser = argparse.ArgumentParser("Rule agent experiments")
     # Environment
     parser.add_argument("--scenario", type=str, default="simple", help="name of the scenario script")
     parser.add_argument("--max_episode_len", type=int, default=25, help="maximum episode length")
@@ -26,12 +27,15 @@ if __name__ == '__main__':
     # parser.add_argument("--good_policy", type=str, default="maddpg", help="policy for good agents")
     # parser.add_argument("--adv_policy", type=str, default="maddpg", help="policy of adversaries")
     # Checkpointing & Logging
-    parser.add_argument("--exp_name", type=str, default="random agents", help="name of the experiment")
+    parser.add_argument("--exp_name", type=str, default="rule agents", help="name of the experiment")
     # Evaluation
     parser.add_argument("--render", action="store_true", default=False, help="do or not render")
     args = parser.parse_args()
 
     print('=== Configuration:\n', args)
+
+    support = set(['simple_speaker_listener'])
+    assert(args.scenario in support)
 
     # =========================== initialize environment =========================== #
     is_render = args.render    
@@ -40,7 +44,7 @@ if __name__ == '__main__':
 
     env = multiagent.environment.MultiAgentEnv(world, scenario.reset_world, scenario.reward, scenario.observation)
     num_agents = env.n
-    agent = BaseAgent(env, args.exp_name)
+    agent = RuleAgent(args.exp_name, args.scenario)
 
     # ======================================== main loop ======================================== #
     num_episodes = args.episodes
@@ -61,7 +65,7 @@ if __name__ == '__main__':
             act_n = agent.act(obs_n)
             next_obs_n, reward_n, done_n, info_n = env.step(act_n)
             done = all(done_n)
-            # print(obs_n, act_n)
+            # print("obs: {} | act: {}".format(obs_n, act_n))
 
             obs_n = next_obs_n
             episode_r_n = list(map(operator.add, episode_r_n, reward_n))

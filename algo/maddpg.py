@@ -7,17 +7,18 @@ import tensorflow.contrib as tc
 
 from common.buffer import BunchBuffer, Transition
 from common.utils import flatten, softmax
-from common.utils import BaseModel
+from common.utils import BaseModel, BaseAgent
 
 # This MADDPG assumes all actions are discret
 
 num_units = 64
 class Actor(BaseModel):
-    def __init__(self, sess, state_space, act_space, lr=1e-2, tau=0.01, name=None, agent_id=None, grad_norm_clipping=None):
+    def __init__(self, sess, state_space, act_space, lr=1e-2, tau=0.01, name=None, agent_id=None, grad_norm_clipping=None, units=64):
         super().__init__(name)
 
         self._lr = lr
         self._tau = tau
+        self.num_units = units
 
         self.sess = sess
         self.agent_id = agent_id
@@ -62,16 +63,17 @@ class Actor(BaseModel):
         return self.obs_input
 
     def _construct(self, out_dim, norm=False):
-        l1 = tf.layers.dense(self.obs_input, units=num_units, activation=tf.nn.relu, name="l1")
+        l1 = tf.layers.dense(self.obs_input, units=self.num_units, activation=tf.nn.relu, name="l1")
         if norm: l1 = tc.layers.layer_norm(l1)
 
-        l2 = tf.layers.dense(l1, units=num_units, activation=tf.nn.relu, name="l2")
+        l2 = tf.layers.dense(l1, units=self.num_units, activation=tf.nn.relu, name="l2")
         if norm: l2 = tc.layers.layer_norm(l2)
 
         out = tf.layers.dense(l2, units=out_dim)
 
         u = tf.random_uniform(tf.shape(out))
         out = tf.nn.softmax(out - tf.log(-tf.log(u)), axis=-1) # gumbel softmax 
+        # out = out - tf.log(-tf.log(u))
 
         return out
 
@@ -97,13 +99,15 @@ class Actor(BaseModel):
 
     def act(self, obs):
         act = self.sess.run(self._eval_act, feed_dict={self.obs_input: obs})
+        #label = np.argmax(act, axis=1)
+        #act = np.eye(act.shape[-1])[label]
 
         return act[0]
 
     def target_act(self, obs): # , one_hot=False):
-        """ Return an action id -> integer """
-
         act = self.sess.run(self._target_act, feed_dict={self.obs_input: obs})
+        # label = np.argmax(act, axis=1)
+        # act = np.eye(act.shape[-1])[label]
         
         return act
         # act = np.argmax(policy, axis=1)
@@ -121,12 +125,13 @@ class Actor(BaseModel):
 
 
 class Critic(BaseModel):
-    def __init__(self, sess, multi_obs_phs, multi_act_phs, lr=1e-2, gamma=0.99, tau=0.01, name=None, agent_id=None, grad_norm_clipping=None):
+    def __init__(self, sess, multi_obs_phs, multi_act_phs, lr=1e-2, gamma=0.99, tau=0.01, name=None, agent_id=None, grad_norm_clipping=None, units=64):
         super().__init__(name)
 
         self.sess = sess
         self.agent_id = agent_id
         self.grad_norm_clipping = grad_norm_clipping
+        self.num_units = units
 
         # flatten observation shape
         self.mul_obs_dim = None
@@ -196,10 +201,10 @@ class Critic(BaseModel):
         return self.multi_act_phs
 
     def _construct(self, input_ph, norm=False):
-        l1 = tf.layers.dense(input_ph, units=num_units, activation=tf.nn.relu, name="l1")
+        l1 = tf.layers.dense(input_ph, units=self.num_units, activation=tf.nn.relu, name="l1")
         if norm: l1 = tc.layers.layer_norm(l1)
 
-        l2 = tf.layers.dense(l1, units=num_units, activation=tf.nn.relu, name="l2")
+        l2 = tf.layers.dense(l1, units=self.num_units, activation=tf.nn.relu, name="l2")
         if norm: l2 = tc.layers.layer_norm(l2)
 
         out = tf.layers.dense(l2, units=1, name="Q")
@@ -243,15 +248,15 @@ class Critic(BaseModel):
         return loss
 
 
-class MADDPG(object):
+class MADDPG(BaseAgent):
     def __init__(self, sess, env, name, n_agent, batch_size=512, actor_lr=1e-2, critic_lr=1e-2, 
-            gamma=0.99, tau=0.01, memory_size=10**6, grad_norm_clipping=None):
+            gamma=0.99, tau=0.01, memory_size=10**6, grad_norm_clipping=None, num_units=64):
+        super().__init__(env, name)
         # == Initialize ==
-        self.name = name
         self.sess = sess
-        self.env = env
         self.n_agent = n_agent
         self.gamma = gamma
+        self.num_units = num_units
 
         self.actors = []  # hold all Actors
         self.critics = []  # hold all Critics
@@ -267,7 +272,7 @@ class MADDPG(object):
                 with tf.variable_scope("policy_{}_{}".format(self.name, i)):
                     obs_space, act_space = env.observation_space[i].shape, (env.action_space[i].n,)
                     self.actors.append(Actor(self.sess, state_space=obs_space, act_space=act_space, lr=actor_lr, tau=tau,
-                                             name=name, agent_id=i, grad_norm_clipping=grad_norm_clipping))
+                                             name=name, agent_id=i, grad_norm_clipping=grad_norm_clipping, units=num_units))
 
             # collect action outputs of all actors
             self.obs_phs = [actor.obs_tensor for actor in self.actors]
@@ -278,7 +283,7 @@ class MADDPG(object):
                 # mask_act_tfs = self._mask_other_act_phs(act_tfs, i)  # stop gradient
                 with tf.variable_scope("critic_{}_{}".format(name, i)):
                     # self.critics.append(Critic(self.sess, self.obs_phs, self.act_phs, mask_act_tfs, lr=critic_lr, name=name, agent_id=i))
-                    self.critics.append(Critic(self.sess, self.obs_phs, self.act_phs, lr=critic_lr, name=name, agent_id=i, grad_norm_clipping=grad_norm_clipping))
+                    self.critics.append(Critic(self.sess, self.obs_phs, self.act_phs, lr=critic_lr, name=name, agent_id=i, grad_norm_clipping=grad_norm_clipping, units=num_units))
                     self.actions_dims.append(self.env.action_space[i].n)
 
             # set optimizer for actors

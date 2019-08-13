@@ -6,7 +6,7 @@ import tensorflow as tf
 import tensorflow.contrib as tc
 
 from common.utils import flatten, softmax
-from common.utils import BaseModel
+from common.utils import BaseModel, BaseAgent
 from common.buffer import Dataset
 
 
@@ -84,11 +84,10 @@ class BCActor(BaseModel):
         loss, _ = self.sess.run([self._loss, self._train_op], feed_dict=feed_dict)
         return loss
 
-class MABehavioralCloning:
+class MABehavioralCloning(BaseAgent):
     def __init__(self, sess, env, name, n_agent, batch_size=64, lr=1e-2):
-        self.name = name
+        super().__init__(env, name)
         self.sess = sess
-        self.env = env
         self.n_agent = n_agent
 
         self.actors = []

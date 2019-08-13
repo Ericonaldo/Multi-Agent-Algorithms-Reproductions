@@ -13,7 +13,11 @@ import multiagent
 import multiagent.scenarios as scenarios
 from multiagent.environment import MultiAgentEnv
 from common.buffer import Dataset
+from common.utils import BaseAgent
 from algo.maddpg import MADDPG
+from algo.rule import RuleAgent
+from algo.behavior_clone import MABehavioralCloning
+from algo.maiail import MAIAIL
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 tf.logging.set_verbosity(tf.logging.ERROR)
@@ -35,6 +39,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser("Sample interactions experiments")
     # Environment
     parser.add_argument("--scenario", type=str, default="simple", help="name of the scenario script")
+    parser.add_argument("--agent", type=str, default="rule", help="name of the sampling agents")
     parser.add_argument("--max_episode_len", type=int, default=50, help="maximum episode length")
     parser.add_argument("--episodes", type=int, default=100, help="number of episodes")
     # parser.add_argument("--num_agents", type=int, default=2, help="number of agents")
@@ -68,20 +73,31 @@ if __name__ == '__main__':
 
     # num_agents = min(args.num_agents, env.n)
     num_agents = env.n
+    load_dir = os.path.join(args.load_dir, args.scenario)
 
-    algo_name = 'maddpg'
-    maddpg = MADDPG(sess, env, algo_name, num_agents)
+    agent = BaseAgent(env, args.exp_name)
+    if args.agent == 'maddpg':
+        agent = MADDPG(sess, env, args.exp_name, num_agents)
+        agent.init()
+        agent.load(load_dir, epoch=args.load_epoch)
+    elif args.agent == 'rule':
+        agent = RuleAgent(env, args.exp_name, args.scenario)
+    elif args.agent == 'bc':
+        agent = BehaviorClone(sess, env, args.exp_name, num_agents)
+        agent.init()
+        agent.load(load_dir, epoch=args.load_epoch)
+    else:
+        print("Not implement agent {}, use random agent!".format(args.agent))
+
     dataset = Dataset(args.scenario, num_agents, capacity=args.dataset_size)
 
-    maddpg.init()
-    load_dir = os.path.join(args.load_dir, args.scenario)
-    maddpg.load(load_dir, epoch=args.load_epoch)
 
     # ======================================== main loop ======================================== #
     num_episodes = args.episodes
     print("Start Sampling...")
 
     total_step = 0
+    episode_r_n_sum = []
     for ep in range(0, num_episodes):
         t_start = time.time()
         obs_n = env.reset()
@@ -91,7 +107,7 @@ if __name__ == '__main__':
             if is_render:
                 # time.sleep(0.1)
                 env.render(mode=None)
-            act_n = maddpg.act(obs_n)
+            act_n = agent.act(obs_n)
             next_obs_n, reward_n, done_n, info_n = env.step(act_n)
             done = all(done_n)
 
@@ -106,10 +122,12 @@ if __name__ == '__main__':
                 break
 
         episode_r_n = [round(_, 3) for _ in episode_r_n]
-        print("\n--- episode-{} | [reward]: {} | [time]: {}".format(ep+1, episode_r_n, round(time.time()-t_start),4))
+        episode_r_n_sum.append(np.sum(episode_r_n))
+        print("\n--- episode-{} | [reward]: {} | [sum-reward]: {}".format(ep+1, episode_r_n, sum(episode_r_n)))
         if not flag:
             break
 
+    print("mean sum reward in {} episodes: {}".format(num_episodes, np.mean(episode_r_n_sum)))
     dataset.save_data(args.data_dir)
     env.close()
     sess.close()

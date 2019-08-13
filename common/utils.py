@@ -8,6 +8,18 @@ except:
     import cv2
     imresize = cv2.resize
 
+class BaseAgent(object):
+    """
+    A random agent.
+    """
+    def __init__(self, env, name):
+        self.env = env
+        self.name = name
+
+    def act(self, obs_n):
+        act_n = [softmax(np.random.random(self.env.action_space[i].n)) for i in range(self.env.n)]
+
+        return act_n
 
 class BaseModel(object):
     def __init__(self, name):
@@ -58,6 +70,6 @@ def softmax(X, theta=1.0, axis=None):
     p = y / ax_sum
 
     # flatten if X was 1D
-    if len(X.shape) == 1: p = p.flatten()
+    if len(np.shape(X)) == 1: p = p.flatten()
 
     return p

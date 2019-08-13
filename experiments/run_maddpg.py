@@ -30,6 +30,7 @@ if __name__ == '__main__':
     # parser.add_argument("--good_policy", type=str, default="maddpg", help="policy for good agents")
     # parser.add_argument("--adv_policy", type=str, default="maddpg", help="policy of adversaries")
     # Core training parameters
+    parser.add_argument("--units", type=int, default=64, help="the hidden units of the nn")
     parser.add_argument("--actor_lr", type=float, default=1e-2, help="learning rate of actor for Adam optimizer")
     parser.add_argument("--critic_lr", type=float, default=1e-2, help="learning rate of critic for Adam optimizer")
     parser.add_argument("--gamma", type=float, default=0.95, help="discount factor")
@@ -71,7 +72,7 @@ if __name__ == '__main__':
     # num_agents = min(args.num_agents, env.n)
     num_agents = env.n
     maddpg = MADDPG(sess, env, args.exp_name, num_agents, args.batch_size, args.actor_lr, args.critic_lr, args.gamma,
-                        args.tau, args.memory_size, grad_norm_clipping=0.5)
+                        args.tau, args.memory_size, grad_norm_clipping=0.5, num_units=args.units)
 
     if not is_evaluate:
         # initialize summary
