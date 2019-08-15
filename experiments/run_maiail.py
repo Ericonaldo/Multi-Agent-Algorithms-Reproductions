@@ -12,7 +12,7 @@ sys.path.insert(1, os.path.join(sys.path[0], '../ma_env/multiagent-particle-envs
 import multiagent
 import multiagent.scenarios as scenarios
 from multiagent.environment import MultiAgentEnv
-from algo.maiail import MAIAIL
+from algo.maiail_maddpg import MAIAIL
 from common.buffer import Dataset
 from common.densityEstimator import KDEEstimator, GMMEstimator
 from common.dimensioner import PCADimensioner, FWDimensioner, AEDimensioner
@@ -80,7 +80,7 @@ if __name__ == '__main__':
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
     sess = tf.Session(config=config)
-    exp_name = args.exp_name + '-' + str(args.lower_dimension) + '-' + str(args.bandwidth) + '-' + str(args.density_estimator)
+    exp_name = args.exp_name + '-' + str(args.dimensioner) + '-' + str(args.lower_dimension) + '-' + str(args.density_estimator) + [ '-' + str(args.bandwidth) if args.density_estimator=='kde' else ''][0] 
 
     num_agents = env.n
 
@@ -98,7 +98,7 @@ if __name__ == '__main__':
 
     dimensioner = None
     d_kwargs = {'name':args.dimensioner, 'lower_dimension':args.lower_dimension}
-    if args.density_estimator == "pca":
+    if args.dimensioner == "pca":
         dimensioner = PCADimensioner
     elif args.dimensioner == "ae":
         dimensioner = AEDimensioner
@@ -110,7 +110,11 @@ if __name__ == '__main__':
 
     dm = [None for _ in range(num_agents)]
     for i in range(num_agents):
+        d_kwargs['agent_id'] = i
+        d_kwargs['s_dim'] = env.observation_space[i].shape[0]
+        d_kwargs['a_dim'] = env.action_space[i].n
         dm[i] = dimensioner(**d_kwargs)
+        dm[i].load()
         
 
     # learning_dataset = Dataset(args.scenario, num_agents, args.batch_size)
@@ -198,9 +202,9 @@ if __name__ == '__main__':
 
         agent_pdf = [None for _ in range(num_agents)]
         for i in range(num_agents):
-            kwargs['name']='expert'
-            kwargs['agent_id']=i
-            agent_pdf[i] = estimator(**kwargs)
+            e_kwargs['name']='expert'
+            e_kwargs['agent_id']=i
+            agent_pdf[i] = estimator(**e_kwargs)
 
     iterations = args.iterations
     num_episodes = args.sample_episodes
@@ -262,7 +266,7 @@ if __name__ == '__main__':
             print("training models...")
             # alpha_value = [(iteration+1)*1.0/(iteration+25+1)] * num_agents
             # alpha_value = [1] * num_agents
-            t_info = maiail.train(expert_pdf, agent_pdf) # TODO dimensioner not implement
+            t_info = maiail.train(expert_pdf, agent_pdf, dm) # TODO dimensioner not implement
 
             pa_loss, pc_loss, d_loss, de_loss, da_loss = t_info['pa_loss'], t_info['pc_loss'], t_info['d_loss'], t_info['de_loss'], t_info['da_loss']
 

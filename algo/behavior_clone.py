@@ -12,13 +12,15 @@ from common.buffer import Dataset
 
 units = 64
 class BCActor(BaseModel):
-    def __init__(self, sess, state_space, act_space, lr=1e-2, name=None, agent_id=None):
+    def __init__(self, sess, state_space, act_space, lr=1e-2, name=None, agent_id=None, discrete=True, sample_action=True):
         super().__init__(name)
 
         self._lr = lr
 
         self.sess = sess
         self.agent_id = agent_id
+        self.discrete = discrete
+        self.sample_action = sample_action
 
         self._action_space = act_space
         self._observation_space = state_space
@@ -32,11 +34,15 @@ class BCActor(BaseModel):
         self.target_act = tf.placeholder(tf.float32, shape=(None,) + self._action_space, name="TAct")
 
         self._scope = tf.get_variable_scope().name
-        self._act = self._construct(self.act_dim)
+        self._logits = self._construct(self.act_dim)
+        self._act = tf.nn.softmax(self._logits)
 
 
         with tf.variable_scope("optimization"):
-            self._loss = tf.reduce_mean(tf.square(self.target_act - self._act))
+            if not discrete:
+                self._loss = tf.reduce_mean(tf.square(self.target_act - self._act))
+            else:
+                self._loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.target_act, logits=self._logits))
             optimizer = tf.train.AdamOptimizer(self._lr)
             self._train_op = optimizer.minimize(self._loss)
             # grad_vars = optimizer.compute_gradients(self._loss, self.trainable_variables)
@@ -66,7 +72,7 @@ class BCActor(BaseModel):
         if norm: l2 = tc.layers.layer_norm(l2)
 
         out = tf.layers.dense(l2, units=out_dim)
-        out = tf.nn.softmax(out, axis=1)
+        # out = tf.nn.softmax(out, axis=1)
 
         return out
 
@@ -78,6 +84,11 @@ class BCActor(BaseModel):
 
     def act(self, obs):
         action = self.sess.run(self._act, feed_dict={self.obs_input: [obs]})
+        if self.discrete:
+            label = np.argmax(action[0])
+            if self.sample_action:
+                label = np.random.choice(len(action[0]), 1, p=action[0])[0]
+            action = [np.eye(len(action[0]))[label]]
         return action[0]
 
     def train(self, feed_dict):
@@ -85,7 +96,7 @@ class BCActor(BaseModel):
         return loss
 
 class MABehavioralCloning(BaseAgent):
-    def __init__(self, sess, env, name, n_agent, batch_size=64, lr=1e-2):
+    def __init__(self, sess, env, name, n_agent, batch_size=64, lr=1e-2, discrete=True, sample_action=True):
         super().__init__(env, name)
         self.sess = sess
         self.n_agent = n_agent
@@ -101,7 +112,7 @@ class MABehavioralCloning(BaseAgent):
                 with tf.variable_scope("policy_{}".format(i)):
                     obs_space, act_space = env.observation_space[i].shape, (env.action_space[i].n,)
                     self.actors.append(BCActor(self.sess, state_space=obs_space, act_space=act_space, lr=lr,
-                                             name=name, agent_id=i))
+                                             name=name, agent_id=i, discrete=discrete, sample_action=sample_action))
                     self.actions_dims.append(self.env.action_space[i].n)
 
             # collect action outputs of all actors
@@ -150,7 +161,7 @@ class MABehavioralCloning(BaseAgent):
         file_path = None
 
         dir_name = os.path.join(dir_path, self.name)
-        model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.name)
+        model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self.name)
         saver = tf.train.Saver(model_vars)
         if epoch is not None:
             file_path = os.path.join(dir_name, "{}-{}".format(self.name, epoch))

@@ -47,7 +47,8 @@ class Discriminator(BaseModel):
         with tf.variable_scope('loss'):
             self.loss_expert = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_1, labels=tf.ones_like(self.logit_1)))
             # loss_expert = tf.reduce_mean(tf.log(tf.nn.sigmoid(self.prob_1)+1e-8))
-            self.loss_agent = tf.reduce_mean(tf.expand_dims(self.alpha_i,-1) * tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_2, labels=tf.zeros_like(self.logit_2)))
+            # self.loss_agent = tf.reduce_mean(tf.expand_dims(self.alpha_i,-1) * tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_2, labels=tf.zeros_like(self.logit_2)))
+            self.loss_agent = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_2, labels=tf.zeros_like(self.logit_2)))
             # loss_agent = tf.reduce_mean(tf.log(1 - self.prob_2+1e-8))
             logits = tf.concat([self.logit_1, self.logit_2], 0)
             entropy = tf.reduce_mean(logit_bernoulli_entropy(logits))
@@ -124,14 +125,14 @@ class MADiscriminator(object):
         self.expert_obs_phs_n = [tf.placeholder(dtype=tf.float32, shape=(None,) + obs_space[i]) for i in range(n_agent)]
         self.expert_act_phs_n = [tf.placeholder(dtype=tf.float32, shape=(None,) + act_space[i]) for i in range(n_agent)]
         self.expert_obs_n = self.expert_obs_phs_n
-        self.expert_act_n = tf.concat(self.expert_act_phs_n, axis=1)
-        self.expert_si_an = [tf.concat([self.expert_obs_n[i], self.expert_act_n], axis=1) for i in range(n_agent)]
+        self.expert_act_n = self.expert_act_phs_n#tf.concat(self.expert_act_phs_n, axis=1)
+        self.expert_si_an = [tf.concat([self.expert_obs_n[i], self.expert_act_n[i]], axis=1) for i in range(n_agent)]
 
         self.agent_obs_phs_n = [tf.placeholder(dtype=tf.float32, shape=(None,) + obs_space[i]) for i in range(n_agent)]
         self.agent_act_phs_n = [tf.placeholder(dtype=tf.float32, shape=(None,) + act_space[i]) for i in range(n_agent)]
         self.agent_obs_n = self.agent_obs_phs_n
-        self.agent_act_n = tf.concat(self.agent_act_phs_n, axis=1)
-        self.agent_si_an = [tf.concat([self.agent_obs_n[i], self.agent_act_n], axis=1) for i in range(n_agent)]
+        self.agent_act_n = self.agent_act_phs_n# tf.concat(self.agent_act_phs_n, axis=1)
+        self.agent_si_an = [tf.concat([self.agent_obs_n[i], self.agent_act_n[i]], axis=1) for i in range(n_agent)]
         
         """
         if lower_dimension is None:
@@ -156,9 +157,11 @@ class MADiscriminator(object):
 
     def get_reward(self, obs_n, act_n, expert_pdf, agent_pdf):
         reward_n = [None] * self.n_agent
+        """
         sa_n = [None for _ in range(self.n_agent)]
         for i in range(self.n_agent):
             sa_n[i] = agent_pdf[i].pca_transform(obs_n[i], act_n[i])
+        """
 
         feed_dict = dict()
         feed_dict.update(zip(self.agent_obs_phs_n, obs_n))
@@ -167,6 +170,7 @@ class MADiscriminator(object):
         feed_dict.update(zip(self.agent_s_a_phs_n, sa_n))
         """
         for i in range(self.n_agent):
+            """
             rho_1 = 1.0 * agent_pdf[i].prob(obs_n[i], act_n[i]) / expert_pdf[i].prob(obs_n[i], act_n[i])
             rho_2 = 1.0
             for j in range(self.n_agent):
@@ -178,15 +182,17 @@ class MADiscriminator(object):
             # alpha = self.lbd * 1.0 * rho_1 / rho_2
             # print("rho_1:{} | rho_2:{} | alpha:{}".format(rho_1, rho_2, alpha))
             feed_dict.update({self.alpha_n[i]: alpha})
+            """
             reward_n[i] = self.discriminators[i].get_reward(feed_dict)
         return reward_n
 
     def get_expert_reward(self, obs_n, act_n, expert_pdf, agent_pdf):
         reward_n = [None] * self.n_agent
+        """
         sa_n = [None for _ in range(self.n_agent)]
         for i in range(self.n_agent):
             sa_n[i] = expert_pdf[i].pca_transform(obs_n[i], act_n[i])
-
+        """
         feed_dict = dict()
         feed_dict.update(zip(self.expert_obs_phs_n, obs_n))
         feed_dict.update(zip(self.expert_act_phs_n, act_n))
@@ -206,7 +212,7 @@ class MADiscriminator(object):
     def clear_dataset(self):
         self.learning_dataset.clear()
 
-    def train(self, expert_pdf, agent_pdf):
+    def train(self, expert_pdf, agent_pdf, dm):
         loss = [0.0] * self.n_agent
         a_loss = [0.0] * self.n_agent
         e_loss = [0.0] * self.n_agent
@@ -220,11 +226,14 @@ class MADiscriminator(object):
             expert_batch_obs_n, expert_batch_act_n = self.expert_dataset.next()
             agent_batch_obs_n, agent_batch_act_n = self.learning_dataset.next() 
 
+            """
             expert_batch_sa_n = [None for _ in range(self.n_agent)]
             agent_batch_sa_n = [None for _ in range(self.n_agent)]
+
             for i in range(self.n_agent):
                 expert_batch_sa_n[i] = expert_pdf[i].pca_transform(expert_batch_obs_n[i], expert_batch_act_n[i])
                 agent_batch_sa_n[i] = agent_pdf[i].pca_transform(agent_batch_obs_n[i], agent_batch_act_n[i])
+            """
 
             feed_dict = dict()
             """
@@ -237,11 +246,13 @@ class MADiscriminator(object):
             feed_dict.update(zip(self.expert_act_phs_n, expert_batch_act_n))
 
             for i in range(self.n_agent):
-                rho_1 = 1.0 * agent_pdf[i].prob(agent_batch_obs_n[i], agent_batch_act_n[i]) / expert_pdf[i].prob(agent_batch_obs_n[i], agent_batch_act_n[i])
+                x = dm[i].transform(agent_batch_obs_n[i], agent_batch_act_n[i])
+                rho_1 = 1.0 * agent_pdf[i].prob(x) / expert_pdf[i].prob(x)
                 rho_2 = 1.0
                 for j in range(self.n_agent):
-                    rho_1 *= expert_pdf[j].prob(agent_batch_obs_n[j], agent_batch_act_n[j])
-                    rho_2 *= agent_pdf[j].prob(agent_batch_obs_n[j], agent_batch_act_n[j])
+                    x = dm[j].transform(agent_batch_obs_n[j], agent_batch_act_n[j])
+                    rho_1 *= expert_pdf[j].prob(x)
+                    rho_2 *= agent_pdf[j].prob(x)
                 print("alpha mean:{} var:{}".format(np.mean(rho_1 / rho_2), np.var(rho_1 / rho_2)))
                 alpha = self.lbd * np.clip(rho_1 / rho_2, 1e-1, 1)
                 # alpha = self.lbd * np.minimum(rho_1 / rho_2, 1)
@@ -304,7 +315,7 @@ class MAIAIL(BaseAgent):
         dir_name = os.path.join(dir_path, self.name)
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
-        model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.name)
+        model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self.name)
         saver = tf.train.Saver(model_vars, max_to_keep=max_to_keep)
         save_path = saver.save(self.sess, dir_name + "/{}".format(self.name), global_step=iteration)
         print("[*] Model saved in file: {}".format(save_path))
@@ -328,7 +339,7 @@ class MAIAIL(BaseAgent):
             file_path = dir_name
             saver.restore(self.sess, tf.train.latest_checkpoint(file_path))
 
-    def train(self, expert_pdf, agent_pdf):
+    def train(self, expert_pdf, agent_pdf, dm):
 
         ## d step
         d_loss = [0.] * self.n_agent
@@ -337,7 +348,7 @@ class MAIAIL(BaseAgent):
 
         print("train discriminators for {} times".format(self.d_step))
         for _ in range(self.d_step): # train Discriminators 2 times
-            loss, e_loss, a_loss = self.madcmt.train(expert_pdf, agent_pdf)
+            loss, e_loss, a_loss = self.madcmt.train(expert_pdf, agent_pdf, dm)
             d_loss = list(map(operator.add, loss, d_loss))
             de_loss = list(map(operator.add, loss, e_loss))
             da_loss = list(map(operator.add, loss, a_loss))

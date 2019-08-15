@@ -11,7 +11,7 @@ from common.utils import BaseModel, BaseAgent
 
 # This MADDPG assumes all actions are discret
 
-num_units = 64
+# num_units = 64
 class Actor(BaseModel):
     def __init__(self, sess, state_space, act_space, lr=1e-2, tau=0.01, name=None, agent_id=None, grad_norm_clipping=None, units=64):
         super().__init__(name)
@@ -73,6 +73,7 @@ class Actor(BaseModel):
 
         u = tf.random_uniform(tf.shape(out))
         out = tf.nn.softmax(out - tf.log(-tf.log(u)), axis=-1) # gumbel softmax 
+        # out = tf.nn.softmax(out, axis=-1) # gumbel softmax 
         # out = out - tf.log(-tf.log(u))
 
         return out
@@ -350,7 +351,7 @@ class MADDPG(BaseAgent):
             os.makedirs(dir_name)
         else:
             tf.gfile.DeleteRecursively(dir_name)
-        model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.name)
+        model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self.name)
         #for i in model_vars:
         #    print(i)
         #print("sum {} vars".format(len(model_vars)))
@@ -370,7 +371,7 @@ class MADDPG(BaseAgent):
         file_path = None
 
         dir_name = os.path.join(dir_path, self.name)
-        model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.name)
+        model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self.name)
         #for i in model_vars:
         #    print(i)
         #print("sum {} vars".format(len(model_vars)))

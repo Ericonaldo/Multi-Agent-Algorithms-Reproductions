@@ -17,7 +17,7 @@ from common.utils import BaseAgent
 from algo.maddpg import MADDPG
 from algo.rule import RuleAgent
 from algo.behavior_clone import MABehavioralCloning
-from algo.maiail import MAIAIL
+from algo.maiail_maddpg import MAIAIL
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 tf.logging.set_verbosity(tf.logging.ERROR)

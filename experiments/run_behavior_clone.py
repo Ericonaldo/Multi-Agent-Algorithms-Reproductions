@@ -29,6 +29,8 @@ if __name__ == '__main__':
     parser.add_argument("--lr", type=float, default=1e-2, help="learning rate for Adam optimizer")
     # parser.add_argument("--gamma", type=float, default=0.95, help="discount factor")
     parser.add_argument("--batch_size", type=int, default=256, help="the batch size to optimize at the same time")
+    parser.add_argument("--discrete", action="store_true", default=False, help="are actions discrete or not")
+    parser.add_argument("--sample_action", action="store_true", default=False, help="to sample action follows the propability or use argmax directly")
     # Checkpointing & Logging
     parser.add_argument("--exp_name", type=str, default="behavior_clone", help="name of the experiment")
     parser.add_argument("--save_interval", type=int, default=10, help='Interval episode for saving model(default=400)')
@@ -65,7 +67,7 @@ if __name__ == '__main__':
 
     # num_agents = min(args.num_agents, env.n)
     num_agents = env.n
-    bc = MABehavioralCloning(sess, env, args.exp_name, num_agents, args.batch_size, args.lr)
+    bc = MABehavioralCloning(sess, env, args.exp_name, num_agents, args.batch_size, args.lr, args.discrete, args.sample_action)
     dataset = Dataset(args.scenario, num_agents, args.batch_size)
     dataset.load_data(args.data_dir)
     if len(dataset) < args.batch_size:
@@ -100,7 +102,7 @@ if __name__ == '__main__':
         bc.init()  # run self.sess.run(tf.global_variables_initializer()) 
 
     if args.restore or is_evaluate:
-        load_dir = os.path.join(args.load_dir, args.scenario)
+        load_dir = os.path.join(args.load_dir, args.scenario) +'/{}'.format(args.discrete)
         bc.load(load_dir, epoch=args.load_iteration)
 
     # ======================================== main loop ======================================== #
@@ -130,7 +132,7 @@ if __name__ == '__main__':
             feed_dict.update(zip(summary_dict['loss'], loss))
 
             if (iteration+1) % args.save_interval == 0:
-                bc.save(args.save_dir+args.scenario, iteration+1, args.max_to_keep)
+                bc.save(args.save_dir+args.scenario+'/{}'.format(args.discrete), iteration+1, args.max_to_keep)
                 print("\n---- iteration: {} | [loss]: {} | [inter-time]: {}".format(iteration, loss, round(time.time()-t_start),4))
                 t_start = time.time()
 

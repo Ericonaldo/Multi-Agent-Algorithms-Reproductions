@@ -44,7 +44,7 @@ if __name__ == '__main__':
 
     env = multiagent.environment.MultiAgentEnv(world, scenario.reset_world, scenario.reward, scenario.observation)
     num_agents = env.n
-    agent = RuleAgent(args.exp_name, args.scenario)
+    agent = RuleAgent(env, args.exp_name, args.scenario)
 
     # ======================================== main loop ======================================== #
     num_episodes = args.episodes

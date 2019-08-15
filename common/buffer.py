@@ -2,6 +2,7 @@ import numpy as np
 import operator
 from collections import namedtuple
 import random
+import copy
 import time
 import os
 
@@ -156,6 +157,10 @@ class Dataset(object):
     def next(self, batch_size=None):
         if batch_size is None:
             batch_size = self.batch_size
+        if self.batch_size > self._size:
+            print("batch size is larger than the dataset size!")
+            exit(0)
+
         if self._point+batch_size > self._size:
             batch_obs_n = list(map(lambda x: x[-batch_size:], self._observations))
             batch_act_n = list(map(lambda x: x[-batch_size:], self._actions))
@@ -213,3 +218,96 @@ class Dataset(object):
         self._size = min(len(self._actions[0]), self._capacity)
         print("loaded data from {}".format(load_dir))
 
+class PPODataset(Dataset):
+    def __init__(self, name, agent_num, batch_size=512, capacity=65536):
+        super().__init__(name, agent_num, batch_size, capacity=65536)
+        self._rewards = [[] for _ in range(self.agent_num)]
+        self._values = [[] for _ in range(self.agent_num)]
+        self._values_next = [[] for _ in range(self.agent_num)]
+        self._gaes = [[] for _ in range(self.agent_num)]
+
+    def clear(self):
+        self._size = 0
+        self._observations = [[] for _ in range(self.agent_num)]
+        self._actions = [[] for _ in range(self.agent_num)]
+        self._rewards = [[] for _ in range(self.agent_num)]
+        self._values = [[] for _ in range(self.agent_num)]
+        self._values_next = [[] for _ in range(self.agent_num)]
+        self._gaes = [[] for _ in range(self.agent_num)]
+        self._point = 0
+
+    def shuffle(self):
+        indices = list(range(self._size)) 
+        random.shuffle(indices)
+        for i in range(self.agent_num):
+            self._observations[i] = [self._observations[i][j] for j in indices]
+            self._actions[i] = [self._actions[i][j] for j in indices]
+            self._rewards[i] = [self._rewards[i][j] for j in indices]
+            self._values[i] = [self._values[i][j] for j in indices]
+            self._values_next[i] = [self._values_next[i][j] for j in indices]
+            self._gaes[i] = [self._gaes[i][j] for j in indices]
+        self._point = 0
+
+    def push(self, obs_n, act_n, reward_n, values_n):
+        if self._size<self._capacity:
+            self._observations = list(map(lambda x, y: y + [x], obs_n, self._observations))
+            self._actions = list(map(lambda x, y: y + [x], act_n, self._actions))
+            self._rewards = list(map(lambda x, y: y + [x], reward_n, self._rewards))
+            self._values = list(map(lambda x, y: y + [x], values_n, self._values))
+        
+        self._size = min(self._size+1, self._capacity)
+        
+        return self._size<self._capacity
+
+    def next(self, batch_size=None):
+        if batch_size is None:
+            batch_size = self.batch_size
+        if self.batch_size > self._size:
+            print("batch size is larger than the dataset size!")
+            exit(0)
+
+        if self._point+batch_size > self._size:
+            batch_obs_n = list(map(lambda x: x[-batch_size:], self._observations))
+            batch_act_n = list(map(lambda x: x[-batch_size:], self._actions))
+            batch_reward_n = list(map(lambda x: x[-batch_size:], self._rewards))
+            batch_values_n = list(map(lambda x: x[-batch_size:], self._values))
+            batch_next_values_n = list(map(lambda x: x[-batch_size], self._values_next))
+            batch_gaes_n = list(map(lambda x: x[-batch_size], self._gaes))
+            self._point = 0
+        else:
+            batch_obs_n = list(map(lambda x: x[self._point:self._point+batch_size], self._observations))
+            batch_act_n = list(map(lambda x: x[self._point:self._point+batch_size], self._actions))
+            batch_reward_n = list(map(lambda x: x[self._point:self._point+batch_size], self._rewards))
+            batch_values_n = list(map(lambda x: x[self._point:self._point+batch_size], self._values))
+            batch_next_values_n = list(map(lambda x: x[self._point:self._point+batch_size], self._values_next))
+            batch_gaes_n = list(map(lambda x: x[self._point:self._point+batch_size], self._gaes))
+        self._point += batch_size
+
+        return batch_obs_n, batch_act_n, batch_reward_n, batch_values_n, batch_next_values_n, batch_gaes_n
+
+    def sample(self, batch_size=None):
+        if batch_size is None:
+            batch_size = self.batch_size
+
+        sample_indices = np.random.randint(low=0, high=self._size, size=batch_size)
+        batch_obs_n = list(map(lambda x: list(np.take(a=x, indices=sample_indices, axis=0)), self._observations))
+        batch_act_n = list(map(lambda x: list(np.take(a=x, indices=sample_indices, axis=0)), self._actions))
+        batch_reward_n = list(map(lambda x: list(np.take(a=x, indices=sample_indices, axis=0)), self._rewards))
+        batch_values_n = list(map(lambda x: list(np.take(a=x, indices=sample_indices, axis=0)), self._values))
+        batch_next_values_n = list(map(lambda x: list(np.take(a=x, indices=sample_indices, axis=0)), self._values_next))
+        batch_gaes_n = list(map(lambda x: list(np.take(a=x, indices=sample_indices, axis=0)), self._gaes))
+
+        return batch_obs_n, batch_act_n, batch_reward_n, batch_values_n, batch_next_values_n, batch_gaes_n
+
+    def compute(self, gamma):
+        for i in range(self.agent_num):
+            self._values_next[i] = self._values[i][1:]+[0]#[self._values[i][-1]]
+            deltas = [r_t + gamma * v_next - v for r_t, v_next, v in zip(self._rewards[i], self._values_next[i], self._values[i])]
+            # calculate generative advantage estimator(lambda = 1), see ppo paper eq(11)
+            self._gaes[i] = copy.deepcopy(deltas)
+            for t in reversed(range(len(self._gaes[i]) - 1)):  # is T-1, where T is time step which run policy
+                self._gaes[i][t] = self._gaes[i][t] + gamma * self._gaes[i][t + 1]
+            gaes = np.array(self._gaes[i]).astype(dtype=np.float32)
+            self._gaes[i] = list((gaes - gaes.mean()) / gaes.std())
+
+        
