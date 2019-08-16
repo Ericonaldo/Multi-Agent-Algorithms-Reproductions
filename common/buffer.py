@@ -133,6 +133,16 @@ class Dataset(object):
         self._actions = [[] for _ in range(self.agent_num)]
         self._point = 0
 
+    def sample(self, batch_size=None):
+        if batch_size is None:
+            batch_size = self.batch_size
+
+        sample_indices = np.random.randint(low=0, high=self._size, size=batch_size)
+        batch_obs_n = list(map(lambda x: list(np.take(a=x, indices=sample_indices, axis=0)), self._observations))
+        batch_act_n = list(map(lambda x: list(np.take(a=x, indices=sample_indices, axis=0)), self._actions))
+
+        return batch_obs_n, batch_act_n
+
     def push(self, obs_n, act_n):
         if self._size<self._capacity:
             self._observations = list(map(lambda x, y: y + [x], obs_n, self._observations))
@@ -259,6 +269,13 @@ class PPODataset(Dataset):
         
         return self._size<self._capacity
 
+    def set_reward(self, reward_n):
+        if self._size<len(reward_n[0]):
+            self._rewards = reward_n
+        else:
+            print("size error!")
+            exit(0)
+        
     def next(self, batch_size=None):
         if batch_size is None:
             batch_size = self.batch_size
@@ -299,8 +316,10 @@ class PPODataset(Dataset):
 
         return batch_obs_n, batch_act_n, batch_reward_n, batch_values_n, batch_next_values_n, batch_gaes_n
 
-    def compute(self, gamma):
+    def compute(self, gamma, reward_funcs=None):
         for i in range(self.agent_num):
+            if reward_funcs is not None:
+                self._rewards[i] = reward_funcs[i](self._observations[i], self._actions[i])
             self._values_next[i] = self._values[i][1:]+[0]#[self._values[i][-1]]
             deltas = [r_t + gamma * v_next - v for r_t, v_next, v in zip(self._rewards[i], self._values_next[i], self._values[i])]
             # calculate generative advantage estimator(lambda = 1), see ppo paper eq(11)

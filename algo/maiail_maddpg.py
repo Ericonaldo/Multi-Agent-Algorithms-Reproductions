@@ -47,8 +47,8 @@ class Discriminator(BaseModel):
         with tf.variable_scope('loss'):
             self.loss_expert = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_1, labels=tf.ones_like(self.logit_1)))
             # loss_expert = tf.reduce_mean(tf.log(tf.nn.sigmoid(self.prob_1)+1e-8))
-            # self.loss_agent = tf.reduce_mean(tf.expand_dims(self.alpha_i,-1) * tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_2, labels=tf.zeros_like(self.logit_2)))
-            self.loss_agent = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_2, labels=tf.zeros_like(self.logit_2)))
+            self.loss_agent = tf.reduce_mean(tf.expand_dims(self.alpha_i,-1) * tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_2, labels=tf.zeros_like(self.logit_2)))
+            # self.loss_agent = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_2, labels=tf.zeros_like(self.logit_2)))
             # loss_agent = tf.reduce_mean(tf.log(1 - self.prob_2+1e-8))
             logits = tf.concat([self.logit_1, self.logit_2], 0)
             entropy = tf.reduce_mean(logit_bernoulli_entropy(logits))
@@ -155,7 +155,7 @@ class MADiscriminator(object):
                 with tf.variable_scope("dicriminator_{}".format(i)):
                     self.discriminators.append(Discriminator(self.sess, self.expert_si_an[i], self.agent_si_an[i], self.alpha_n[i], lr=lr, name=name, agent_id=i, units=units, e_w=e_w, a_w=a_w))
 
-    def get_reward(self, obs_n, act_n, expert_pdf, agent_pdf):
+    def get_reward(self, obs_n, act_n, expert_pdf, agent_pdf, dm):
         reward_n = [None] * self.n_agent
         """
         sa_n = [None for _ in range(self.n_agent)]
@@ -170,19 +170,19 @@ class MADiscriminator(object):
         feed_dict.update(zip(self.agent_s_a_phs_n, sa_n))
         """
         for i in range(self.n_agent):
-            """
-            rho_1 = 1.0 * agent_pdf[i].prob(obs_n[i], act_n[i]) / expert_pdf[i].prob(obs_n[i], act_n[i])
+            x = dm[i].transform(obs_n[i], act_n[i])
+            rho_1 = 1.0 * agent_pdf[i].prob(x) / expert_pdf[i].prob(x)
             rho_2 = 1.0
             for j in range(self.n_agent):
-                rho_1 *= expert_pdf[j].prob(obs_n[j], act_n[j])
-                rho_2 *= agent_pdf[j].prob(obs_n[j], act_n[j])
+                x = dm[j].transform(obs_n[j], act_n[j])
+                rho_1 *= expert_pdf[j].prob(x)
+                rho_2 *= agent_pdf[j].prob(x)
             alpha = self.lbd * np.clip(rho_1 / rho_2, 1e-1, 1)
             # alpha = self.lbd * np.minimum(rho_1 / rho_2, 1)
             # alpha = self.lbd * np.maximum(rho_1 / rho_2, 1e-1)
             # alpha = self.lbd * 1.0 * rho_1 / rho_2
             # print("rho_1:{} | rho_2:{} | alpha:{}".format(rho_1, rho_2, alpha))
             feed_dict.update({self.alpha_n[i]: alpha})
-            """
             reward_n[i] = self.discriminators[i].get_reward(feed_dict)
         return reward_n
 
@@ -299,6 +299,11 @@ class MAIAIL(BaseAgent):
     def init(self):
         self.sess.run(tf.global_variables_initializer())
 
+    def bc_init(self, init_iter, expert_dataset):
+        bc_loss = self.maddpg.bc_init(init_iter, expert_dataset)
+
+        return bc_loss
+
     def act(self, obs_set):
         """ Accept a observation list, return action list of all agents. """
         actions = self.maddpg.act(obs_set)
@@ -359,7 +364,7 @@ class MAIAIL(BaseAgent):
 
         obs_n, act_n = self.learning_dataset.next(5)
         # print("agent-(s,a): ({},{})".format(obs_n, act_n))
-        print("agent-reward-D: {}".format(self.madcmt.get_reward(obs_n, act_n, expert_pdf, agent_pdf)))
+        print("agent-reward-D: {}".format(self.madcmt.get_reward(obs_n, act_n, expert_pdf, agent_pdf, dm)))
         obs_en, act_en = self.expert_dataset.next(5)
         # print("expert-(s,a): ({},{})".format(obs_en, act_en))
         print("expert-reward-D: {}".format(self.madcmt.get_expert_reward(obs_en, act_en, expert_pdf, agent_pdf)))
@@ -389,7 +394,7 @@ class MAIAIL(BaseAgent):
         pc_loss = [0.0] * self.n_agent
         print("train policy for {} times".format(self.p_step))
         for _ in range(self.p_step): # train policy 6 times
-            t_info = self.maddpg.train(reward_func=self.madcmt.get_reward, pdfs=[expert_pdf, agent_pdf])
+            t_info = self.maddpg.train(reward_func=self.madcmt.get_reward, pdfs=[expert_pdf, agent_pdf], dm=dm)
             pa_loss = map(operator.add, pa_loss, t_info['a_loss'])
             pc_loss = map(operator.add, pc_loss, t_info['c_loss'])
 

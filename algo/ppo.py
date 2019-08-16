@@ -23,7 +23,7 @@ class Actor(BaseModel):
         self._train_op = None
 
         self._scope = tf.get_variable_scope().name
-        self._act_probs = self._construct(act_dim)
+        self._act_probs = tf.nn.softmax(self._construct(act_dim))
         
         self.act_stochastic = tf.multinomial(tf.log(self.act_probs), num_samples=1)
         self.act_stochastic = tf.reshape(self.act_stochastic, shape=[-1])
@@ -45,7 +45,8 @@ class Actor(BaseModel):
         l2 = tf.layers.dense(l1, units=self.num_units, activation=tf.nn.relu, name="l2", trainable=self.trainable)
         if norm: l2 = tc.layers.layer_norm(l2)
 
-        out = tf.layers.dense(l2, units=out_dim, activation=tf.nn.softmax, name="out", trainable=self.trainable)
+        self.logits = tf.layers.dense(l2, units=out_dim, activation=None, name="out", trainable=self.trainable)
+        out = self.logits
 
         return out
 
@@ -90,7 +91,7 @@ class Critic(BaseModel):
         out = tf.layers.dense(l2, units=1, name="v")
 
         return out
-
+ 
 
 class PPO(BaseAgent):
     def __init__(self, sess, env, name, agent_id, a_lr=0.01, c_lr=0.01, gamma=0.95, clip_value=0.2, ent_w=0.01, num_units=64):
@@ -116,6 +117,7 @@ class PPO(BaseAgent):
 
             self.obs_phs = tf.placeholder(tf.float32, shape=(None,) + env.observation_space[agent_id].shape, name="Obs")
             #self.obs_phs = tf.placeholder(tf.float32, shape=(None,) + env.observation_space.shape, name="Obs")
+            self.tar_act = tf.placeholder(tf.float32, shape=(None, self.act_dim), name="Obs")
 
             # inputs for train_op
             with tf.variable_scope('train_inp'):
@@ -136,6 +138,7 @@ class PPO(BaseAgent):
                 self.update_oldpi_op = [oldp.assign(p) for p, oldp in zip(self.pi.variables, self.oldpi.variables)]
 
             self.act_probs = self.pi.act_probs
+            self.logits = self.pi.logits
             act_probs_old = self.oldpi.act_probs
 
             # probabilities of actions which agent took with policy
@@ -145,6 +148,12 @@ class PPO(BaseAgent):
             # probabilities of actions which agent took with old policy
             act_probs_old = act_probs_old * self.actions
             act_probs_old = tf.reduce_sum(act_probs_old, axis=1)
+
+            with tf.variable_scope('bc_init'):
+                # self._bc_loss = tf.reduce_mean(tf.square(self.tar_act - self.logits))
+                self.bc_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.tar_act, logits=self.logits))
+                bc_optim = tf.train.AdamOptimizer(a_lr)
+                self._train_bc_op = bc_optim.minimize(self.bc_loss)
 
             with tf.variable_scope('optimization'):
                 # construct computation graph for loss_clip
@@ -178,6 +187,11 @@ class PPO(BaseAgent):
 
     def init(self):
         self.sess.run(tf.global_variables_initializer())
+
+    def bc_init(self, obs, tar_act):
+        feed_dict = {self.obs_phs: obs, self.tar_act:tar_act}
+        bc_loss, _ = self.sess.run([self.bc_loss, self._train_bc_op], feed_dict=feed_dict)
+        return bc_loss
 
     def act(self, obs):
         feed_dict = {self.obs_phs: [obs]}

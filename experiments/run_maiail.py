@@ -26,7 +26,7 @@ if __name__ == '__main__':
     # Environment
     parser.add_argument("--scenario", type=str, default="simple", help="name of the scenario script")
     parser.add_argument("--max_episode_len", type=int, default=25, help="maximum episode length")
-    parser.add_argument("--sample_episodes", type=int, default=1000, help="number of sampling episodes")
+    parser.add_argument("--sample_episodes", type=int, default=100, help="number of sampling episodes")
     parser.add_argument("--iterations", type=int, default=100, help="number of training iterations")
     # parser.add_argument("--num_agents", type=int, default=2, help="number of agents")
     # Core training parameters
@@ -182,6 +182,7 @@ if __name__ == '__main__':
     p_loss, d_loss = None, None
     if not is_evaluate:
         print("Start Training...")
+        maiail.bc_init(100, expert_dataset)
     else:
         print("Start Evaluating...")
 

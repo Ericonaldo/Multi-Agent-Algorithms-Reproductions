@@ -18,6 +18,10 @@ class Dimensioner(object):
     def transform(self, **kwargs):
         raise NotImplementedError
 
+    def load(self):
+        return 
+
+
 class PCADimensioner(Dimensioner):
     def __init__(self, name, agent_id, s_dim, a_dim, lower_dimension=None):
         super().__init__(name, agent_id, s_dim+a_dim, lower_dimension)

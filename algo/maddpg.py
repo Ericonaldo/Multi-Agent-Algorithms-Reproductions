@@ -33,6 +33,7 @@ class Actor(BaseModel):
         self.act_dim = flatten(self._action_space)
 
         self.obs_input = tf.placeholder(tf.float32, shape=(None,) + self._observation_space, name="Obs")
+        self.tar_act = tf.placeholder(tf.float32, shape=(None,) + (self.act_dim,), name="tar_act")
 
         with tf.variable_scope("eval"):
             self._eval_scope = tf.get_variable_scope().name
@@ -45,6 +46,16 @@ class Actor(BaseModel):
         with tf.name_scope("Update"):  # smooth average update process
             self._update_op = [tf.assign(t_var, e_var) for t_var, e_var in zip(self.t_variables, self.e_variables)]
             self._soft_update_op = [tf.assign(t_var, self._tau * e_var + (1. - self._tau) * t_var) for t_var, e_var in zip(self.t_variables, self.e_variables)]
+
+        with tf.name_scope("BCInit"):
+            self._bc_loss = tf.reduce_mean(tf.square(self.tar_act - self._eval_act))
+            # self._bc_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.tar_act, logits=self.logits))
+            bc_optim = tf.train.AdamOptimizer(self._lr)
+            self._train_bc_op = bc_optim.minimize(self._bc_loss)
+
+    def bc_init(self, feed_dict):
+        bc_loss, _ = self.sess.run([self._bc_loss, self._train_bc_op], feed_dict=feed_dict)
+        return bc_loss
 
     @property
     def t_variables(self):
@@ -59,6 +70,10 @@ class Actor(BaseModel):
         return self._eval_act
 
     @property
+    def tar_act_tensor(self):
+        return self.tar_act
+
+    @property
     def obs_tensor(self):
         return self.obs_input
 
@@ -69,10 +84,10 @@ class Actor(BaseModel):
         l2 = tf.layers.dense(l1, units=self.num_units, activation=tf.nn.relu, name="l2")
         if norm: l2 = tc.layers.layer_norm(l2)
 
-        out = tf.layers.dense(l2, units=out_dim)
+        self.logits = tf.layers.dense(l2, units=out_dim)
 
-        u = tf.random_uniform(tf.shape(out))
-        out = tf.nn.softmax(out - tf.log(-tf.log(u)), axis=-1) # gumbel softmax 
+        u = tf.random_uniform(tf.shape(self.logits))
+        out = tf.nn.softmax(self.logits - tf.log(-tf.log(u)), axis=-1) # gumbel softmax 
         # out = tf.nn.softmax(out, axis=-1) # gumbel softmax 
         # out = out - tf.log(-tf.log(u))
 
@@ -278,6 +293,7 @@ class MADDPG(BaseAgent):
             # collect action outputs of all actors
             self.obs_phs = [actor.obs_tensor for actor in self.actors]
             self.act_phs = [actor.act_tensor for actor in self.actors]
+            self.tar_act_phs = [actor.tar_act_tensor for actor in self.actors]
 
             for i in range(self.env.n):
                 print("initialize critic for agent {} ...".format(i))
@@ -300,24 +316,26 @@ class MADDPG(BaseAgent):
             self.actors[i].update()
             self.critics[i].update()
 
-    @staticmethod
-    def _mask_other_act_phs(act_phs, agent_id):
-        """ Mask action placeholders corresponding to other agents whose id != agent_id
+    def bc_init(self, init_iter, expert_dataset):
+        print("bc initialization for {} iterations".format(init_iter))
+        epoch = len(expert_dataset) // self.batch_size
+        for _ in range(init_iter): 
+            bc_loss = [0.] * self.n_agent
+            for __ in range(epoch):
+                obs_en, act_en = expert_dataset.sample(self.batch_size)
+                for i in range(self.n_agent):
+                    act_phs_i = self.tar_act_phs[i]
+                    obs_phs_i = self.obs_phs[i]
+                    feed_dict = dict()
+                    feed_dict[act_phs_i] = act_en[i]
+                    feed_dict[obs_phs_i] = obs_en[i]
 
-        :param act_phs: list, action placeholder list
-        :param agent_id: int, agent id
-        :return: list of masked action placeholder
-        """
+                    bc_loss[i] += self.actors[i].bc_init(feed_dict)
 
-        res = []
-        for i, ph in enumerate(act_phs):
-            # ph = tf.reshape(tf.dtypes.cast(ph, tf.float32), (-1, 1))
-            if agent_id == i:
-                res.append(ph)
-            else:
-                res.append(tf.stop_gradient(ph))
+            bc_loss = list(map(lambda x:x/epoch, bc_loss))
+            print("bc loss in iter {} : {}".format(_, bc_loss))
 
-        return res
+        return 
 
     def store_trans(self, state_n, action_n, next_state_n, reward_n, done_n):
         return self.replay_buffer.push(state_n, action_n, next_state_n, reward_n, done_n)
@@ -438,7 +456,7 @@ class MADDPG(BaseAgent):
 
         return a_loss, c_loss
 
-    def train(self, reward_func=None, pdfs=None):
+    def train(self, reward_func=None, pdfs=None, dm=None):
         """ Run multiple training steps
 
         :return: mean_a_loss, mean_c_loss: mean of actor loss and critic loss for N agents of n_batch
@@ -456,7 +474,7 @@ class MADDPG(BaseAgent):
         for i in range(n_batch):
             batch_list = self.replay_buffer.sample()
 
-            if (reward_func is not None) and (pdfs is not None):
+            if (reward_func is not None) and (pdfs is not None) and (dm is not None):
                 expert_pdf, agent_pdf = pdfs
                 # add reward to maddpg's replay buffer
                 batch_obs_n = [None for _ in range(self.n_agent)]
@@ -465,7 +483,7 @@ class MADDPG(BaseAgent):
                     batch_obs_n[i] = batch_list[i][0]
                     batch_act_n[i] = batch_list[i][1]
                 # print(np.shape(batch_list), np.shape(batch_obs_n), np.shape(batch_act_n))
-                reward_n = reward_func(batch_obs_n, batch_act_n, expert_pdf, agent_pdf)
+                reward_n = reward_func(batch_obs_n, batch_act_n, expert_pdf, agent_pdf, dm)
                 for i in range(self.n_agent):
                     batch_list[i] = Transition(batch_list[i][0], batch_list[i][1], batch_list[i][2], reward_n[i], batch_list[i][4])
 

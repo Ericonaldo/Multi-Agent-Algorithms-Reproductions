@@ -23,8 +23,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser("PPO experiments")
     # Environment
     parser.add_argument("--scenario", type=str, default="simple", help="name of the scenario script")
-    parser.add_argument("--max_episode_len", type=int, default=33, help="maximum episode length")
-    parser.add_argument("--episodes", type=int, default=60000, help="number of episodes")
+    parser.add_argument("--max_episode_len", type=int, default=50, help="maximum episode length")
+    parser.add_argument("--episodes", type=int, default=10000, help="number of episodes")
     parser.add_argument("--epoch", type=int, default=6, help="number of training epochs")
     # parser.add_argument("--num_agents", type=int, default=2, help="number of agents")
     # Core training parameters
@@ -163,6 +163,10 @@ if __name__ == '__main__':
 
         # =============================== render / record / model saving ===============================
         # every episode
+        # episode_r_n = [round(_, 3) for _ in episode_r_n]
+        episode_r_all.append(episode_r_n)
+        episode_r_all_sum.append(np.sum(episode_r_n))
+
         if not is_evaluate:
             dataset.compute(args.gamma)
             for epoch in range(args.epoch):
@@ -175,13 +179,6 @@ if __name__ == '__main__':
                     a_loss[i].append(t_info_n['a_loss'])
                     c_loss[i].append(t_info_n['c_loss'])
 
-        # episode_r_n = [round(_, 3) for _ in episode_r_n]
-        episode_r_all.append(episode_r_n)
-        episode_r_all_sum.append(np.sum(episode_r_n))
-
-        # if t_info_n is not None:
-        # if not is_evaluate:
-        if (not is_evaluate) and (t_info_n is not None):
             a_loss = list(map(lambda x: round(sum(x) / len(x), 3), a_loss))
             c_loss = list(map(lambda x: round(sum(x) / len(x), 3), c_loss))
             feed_dict = dict()
@@ -196,8 +193,7 @@ if __name__ == '__main__':
             if (ep+1) % args.save_interval == 0:
                 for i in range(num_agents):
                     ppo[i].save(args.save_dir+args.scenario, ep+1, args.max_to_keep)
-                print("\n--- episode-{} | [a-loss]: {} | [c-loss]: {} | [mean-sum-reward]: {} | [inter-time]: {}".format(ep+1, a_loss, c_loss, np.mean(episode_r_all_sum[-args.save_interval:], axis=0), round(time.time()-t_start),4))
-                t_start = time.time()
+                print("\n--- episode-{} | [a-loss]: {} | [c-loss]: {} | [mean-sum-reward]: {} | [inter-time]: {}".format(ep+1, a_loss, c_loss, np.mean(episode_r_all_sum[-args.save_interval:], axis=0))
 
         if is_evaluate:
             print("\n--- episode-{} | [sum-reward]: {}".format(ep+1, episode_r_all_sum[-1]))

@@ -28,7 +28,7 @@ if __name__ == '__main__':
     # Core training parameters
     parser.add_argument("--lr", type=float, default=1e-2, help="learning rate for Adam optimizer")
     # parser.add_argument("--gamma", type=float, default=0.95, help="discount factor")
-    parser.add_argument("--batch_size", type=int, default=256, help="the batch size to optimize at the same time")
+    parser.add_argument("--batch_size", type=int, default=32, help="the batch size to optimize at the same time")
     parser.add_argument("--discrete", action="store_true", default=False, help="are actions discrete or not")
     parser.add_argument("--sample_action", action="store_true", default=False, help="to sample action follows the propability or use argmax directly")
     # Checkpointing & Logging
@@ -130,11 +130,10 @@ if __name__ == '__main__':
             loss = list(map(lambda x: round(sum(x) / len(x), 3), loss))
             feed_dict = dict()
             feed_dict.update(zip(summary_dict['loss'], loss))
+            print("\n---- iteration: {} | [loss]: {}".format(iteration, loss))
 
             if (iteration+1) % args.save_interval == 0:
                 bc.save(args.save_dir+args.scenario+'/{}'.format(args.discrete), iteration+1, args.max_to_keep)
-                print("\n---- iteration: {} | [loss]: {} | [inter-time]: {}".format(iteration, loss, round(time.time()-t_start),4))
-                t_start = time.time()
 
         # =========================== start evaluating =========================== #
 
