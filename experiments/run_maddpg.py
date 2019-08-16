@@ -117,8 +117,6 @@ if __name__ == '__main__':
 
     # ======================================== main loop ======================================== #
     num_episodes = args.train_episodes
-    if is_evaluate:
-        num_episodes = 100
     a_loss, c_loss = None, None
     if not is_evaluate:
         print("Start Training...")

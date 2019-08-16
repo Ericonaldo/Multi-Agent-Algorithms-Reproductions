@@ -305,14 +305,21 @@ class PPODataset(Dataset):
     def sample(self, batch_size=None):
         if batch_size is None:
             batch_size = self.batch_size
+        batch_obs_n = batch_act_n = batch_reward_n = batch_values_n = batch_next_values_n = batch_gaes_n = None
 
         sample_indices = np.random.randint(low=0, high=self._size, size=batch_size)
-        batch_obs_n = list(map(lambda x: list(np.take(a=x, indices=sample_indices, axis=0)), self._observations))
-        batch_act_n = list(map(lambda x: list(np.take(a=x, indices=sample_indices, axis=0)), self._actions))
-        batch_reward_n = list(map(lambda x: list(np.take(a=x, indices=sample_indices, axis=0)), self._rewards))
-        batch_values_n = list(map(lambda x: list(np.take(a=x, indices=sample_indices, axis=0)), self._values))
-        batch_next_values_n = list(map(lambda x: list(np.take(a=x, indices=sample_indices, axis=0)), self._values_next))
-        batch_gaes_n = list(map(lambda x: list(np.take(a=x, indices=sample_indices, axis=0)), self._gaes))
+        if len(self._observations[0])>0:
+            batch_obs_n = list(map(lambda x: list(np.take(a=x, indices=sample_indices, axis=0)), self._observations))
+        if len(self._actions[0])>0:
+            batch_act_n = list(map(lambda x: list(np.take(a=x, indices=sample_indices, axis=0)), self._actions))
+        if len(self._rewards[0])>0:
+            batch_reward_n = list(map(lambda x: list(np.take(a=x, indices=sample_indices, axis=0)), self._rewards))
+        if len(self._values[0])>0:
+            batch_values_n = list(map(lambda x: list(np.take(a=x, indices=sample_indices, axis=0)), self._values))
+        if len(self._values_next[0])>0:
+            batch_next_values_n = list(map(lambda x: list(np.take(a=x, indices=sample_indices, axis=0)), self._values_next))
+        if len(self._gaes[0])>0:
+            batch_gaes_n = list(map(lambda x: list(np.take(a=x, indices=sample_indices, axis=0)), self._gaes))
 
         return batch_obs_n, batch_act_n, batch_reward_n, batch_values_n, batch_next_values_n, batch_gaes_n
 
