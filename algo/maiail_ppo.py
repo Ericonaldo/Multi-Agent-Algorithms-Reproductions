@@ -23,12 +23,13 @@ def logit_bernoulli_entropy(logits):
     return ent
 
 class Discriminator(BaseModel):
-    def __init__(self, sess, env, name=None, agent_id=None, entcoeff=0.001, lr=1e-2, units=128):
+    def __init__(self, sess, env, name=None, agent_id=None, entcoeff=0.001, lr=1e-2, units=128, e_w=1, a_w=1, grad_norm_clipping=0.5):
         super().__init__(name)
 
         self.sess = sess
         self.agent_id = agent_id
         self.units = units
+        self.grad_norm_clipping = grad_norm_clipping
 
         self._loss = None
         self._train_op = None
@@ -36,44 +37,58 @@ class Discriminator(BaseModel):
         self.scope = tf.get_variable_scope().name
 
         obs_space = env.observation_space[agent_id].shape
-        act_space = (env.action_space[agent_id].n,)
+        act_space = [(env.action_space[i].n,) for i in range(env.n)]
 
         self.expert_obs_phs = tf.placeholder(dtype=tf.float32, shape=(None,) + obs_space)
-        self.expert_act_phs = tf.placeholder(dtype=tf.float32, shape=(None,) + act_space)
-        self.expert_si_ai = tf.concat([self.expert_obs_phs, self.expert_act_phs], axis=1)
+        self.expert_act_phs_n = [tf.placeholder(dtype=tf.float32, shape=(None,) + act_space[i]) for i in range(env.n)]
+        expert_act_n = tf.concat(self.expert_act_phs_n, axis=1)
+        self.expert_si_an = tf.concat([self.expert_obs_phs, expert_act_n], axis=1)
 
         self.agent_obs_phs = tf.placeholder(dtype=tf.float32, shape=(None,) + obs_space)
-        self.agent_act_phs = tf.placeholder(dtype=tf.float32, shape=(None,) + act_space)
-        self.agent_si_ai = tf.concat([self.agent_obs_phs, self.agent_act_phs], axis=1)
+        self.agent_act_phs_n = [tf.placeholder(dtype=tf.float32, shape=(None,) + act_space[i]) for i in range(env.n)]
+        agent_act_n = tf.concat(self.agent_act_phs_n, axis=1)
+        self.agent_si_an = tf.concat([self.agent_obs_phs, agent_act_n], axis=1)
+
+        self.alpha_i = tf.placeholder(dtype=tf.float32, shape=(None,))
 
         with tf.variable_scope('network') as network_scope:
-            self.logit_1 = self._construct(input_ph=self.expert_si_ai)
+            self.logit_1 = self._construct(input_ph=self.expert_si_an)
             network_scope.reuse_variables()  # share parameter
-            self.logit_2 = self._construct(input_ph=self.agent_si_ai)
+            self.logit_2 = self._construct(input_ph=self.agent_si_an)
 
         with tf.variable_scope('loss'):
             self.loss_expert = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_1, labels=tf.ones_like(self.logit_1)))
             # loss_expert = tf.reduce_mean(tf.log(tf.nn.sigmoid(self.prob_1)+1e-8))
+            # self.loss_agent = tf.reduce_mean(tf.expand_dims(self.alpha_i,-1) * tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_2, labels=tf.zeros_like(self.logit_2)))
             self.loss_agent = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_2, labels=tf.zeros_like(self.logit_2)))
             # loss_agent = tf.reduce_mean(tf.log(1 - self.prob_2+1e-8))
             logits = tf.concat([self.logit_1, self.logit_2], 0)
             entropy = tf.reduce_mean(logit_bernoulli_entropy(logits))
             entropy_loss = -entcoeff*entropy
-            self._loss = self.loss_expert + self.loss_agent + entropy_loss
+            self._loss = e_w * self.loss_expert + a_w * self.loss_agent + entropy_loss
             # self._loss = loss_expert + loss_agent
             # self._loss = loss_expert
 
 
             optimizer = tf.train.AdamOptimizer(lr)
-            # grad_vars = optimizer.compute_gradients(self._loss, self.trainable_variables)
-            # self._train_op = optimizer.apply_gradients(grad_vars)
-            self._train_op = optimizer.minimize(self._loss)
+            gradients = optimizer.compute_gradients(self._loss, self.trainable_variables)
+            if self.grad_norm_clipping is not None:
+                for i, (grad, var) in enumerate(gradients):
+                    if grad is not None:
+                        gradients[i] = (tf.clip_by_norm(grad, self.grad_norm_clipping), var)
+            self._train_op = optimizer.apply_gradients(gradients)
+            # self._train_op = optimizer.minimize(self._loss)
 
         # self.expert_reward = tf.log(tf.nn.sigmoid(self.logit_1)+1e-8)
-        self.expert_reward = tf.nn.sigmoid(self.logit_1)*2.0 - 1
-        self.reward = tf.nn.sigmoid(self.logit_2)*2.0 - 1
+        # self.expert_reward = tf.nn.sigmoid(self.logit_1)*2.0 - 1
+        self.expert_reward = tf.log(tf.nn.sigmoid(self.logit_1)+1e-8) - tf.log(1-tf.nn.sigmoid(self.logit_1)+1e-8)
+        # self.reward = tf.nn.sigmoid(self.logit_2)*2.0 - 1
+        self.reward = tf.log(tf.nn.sigmoid(self.logit_2)+1e-8) - tf.log(1-tf.nn.sigmoid(self.logit_2)+1e-8) 
         # self.reward = tf.log(tf.nn.sigmoid(self.logit_2)+1e-8)
         # self.reward = -tf.log(1-tf.nn.sigmoid(self.logit_2)+1e-8)
+        # self.reward = tf.expand_dims(self.alpha_i,-1) * tf.log(tf.nn.sigmoid(self.logit_2)+1e-8)
+        # self.reward = -tf.expand_dims(self.alpha_i,-1) * tf.log(1-tf.nn.sigmoid(self.logit_2)+1e-8)
+        # self.reward = tf.expand_dims(self.alpha_i,-1) * tf.nn.sigmoid(self.logit_2)*2.0-1
 
     def _construct(self, input_ph, norm=False):
         l1 = tf.layers.dense(inputs=input_ph, units=self.units, activation=tf.nn.leaky_relu, name='l1')
@@ -85,25 +100,28 @@ class Discriminator(BaseModel):
 
         return out
 
-    def train(self, expert_obs, expert_act, agent_obs, agent_act):
+    def train(self, expert_obs, expert_act_n, agent_obs, agent_act_n, alpha_i):
         feed_dict = dict()
         feed_dict[self.agent_obs_phs] = agent_obs
-        feed_dict[self.agent_act_phs] = agent_act
+        feed_dict.update(zip(self.agent_act_phs_n, agent_act_n))
         feed_dict[self.expert_obs_phs] = expert_obs
-        feed_dict[self.expert_act_phs] = expert_act
+        feed_dict.update(zip(self.expert_act_phs_n, expert_act_n))
+        feed_dict[self.alpha_i] = alpha_i
         loss, e_loss, a_loss, _ = self.sess.run([self._loss, self.loss_expert, self.loss_agent, self._train_op], feed_dict=feed_dict)
 
         return loss, e_loss, a_loss
 
-    def get_reward(self, obs, act):
-        feed_dict = {self.agent_obs_phs:obs, self.agent_act_phs:act}
+    def get_reward(self, obs, act_n):
+        feed_dict = {self.agent_obs_phs:obs}
+        feed_dict.update(zip(self.agent_act_phs_n,act_n))
         reward = self.sess.run(self.reward, feed_dict=feed_dict)
         # print(self.sess.run(tf.nn.sigmoid(self.logit_2), feed_dict=feed_dict))
         
         return reward.reshape((-1,))
 
-    def get_expert_reward(self, obs, act):
-        feed_dict = {self.expert_obs_phs:obs, self.expert_act_phs:act}
+    def get_expert_reward(self, obs, act_n):
+        feed_dict = {self.expert_obs_phs:obs}
+        feed_dict.update(zip(self.expert_act_phs_n,act_n))
         reward = self.sess.run(self.expert_reward, feed_dict=feed_dict)
         # print(self.sess.run(tf.nn.sigmoid(self.logit_2), feed_dict=feed_dict))
         
@@ -114,8 +132,8 @@ class Discriminator(BaseModel):
         return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.scope)
 
 
-class GAIL(BaseAgent):
-    def __init__(self, sess, env, scenario, name, n_agent, batch_size=128, entcoeff=0.001, lr=1e-2, gamma=0.99, p_step=3, d_step=1, units=128):
+class MAIAIL(BaseAgent):
+    def __init__(self, sess, env, scenario, name, n_agent, batch_size=512, entcoeff=0.001, lr=1e-2, gamma=0.99, tau=0.01, memory_size=10**4, p_step=3, d_step=1, units=128, lbd=1, lower_dimension=None, grad_norm_clipping=0.5):
         super().__init__(env, name)
         # == Initialize ==
         self.sess = sess
@@ -123,6 +141,7 @@ class GAIL(BaseAgent):
         self.batch_size = batch_size
         self.p_step = p_step
         self.d_step = d_step
+        self.lbd = lbd
         self.gamma = gamma
 
         self.ppo = [] # ppo agents
@@ -138,11 +157,10 @@ class GAIL(BaseAgent):
 
             # Discriminator
             print("initialize discriminators ...")
-            # Discriminator for each agents
             for i in range(self.n_agent):
                 print("initialize discriminator for agent {} ...".format(i))
                 with tf.variable_scope("dicriminator_{}".format(i)):
-                    self.disc.append(Discriminator(self.sess, env, name=name, agent_id=i, entcoeff=entcoeff, lr=lr, units=units))
+                    self.disc.append(Discriminator(self.sess, env, name=name, agent_id=i, entcoeff=entcoeff, lr=lr, units=units, grad_norm_clipping=grad_norm_clipping))
 
     def init(self):
         self.sess.run(tf.global_variables_initializer())
@@ -205,18 +223,32 @@ class GAIL(BaseAgent):
             file_path = dir_name
             saver.restore(self.sess, tf.train.latest_checkpoint(file_path))
 
-    def train(self, expert_dataset, learning_dataset):
+    def train(self, expert_dataset, learning_dataset, expert_pdf, agent_pdf, dm):
         ## d step
         d_loss = [0.] * self.n_agent
         de_loss = [0.] * self.n_agent
         da_loss = [0.] * self.n_agent
 
         print("train discriminators for {} times".format(self.d_step))
-        for _ in range(self.d_step): # train Discriminators 2 times
+        for _ in range(self.d_step): # train Discriminators d_step times
             expert_obs, expert_act = expert_dataset.sample(self.batch_size)
             agent_obs, agent_act, _, _, _, _ = learning_dataset.sample(self.batch_size)
+
             for i in range(self.n_agent):
-                loss, e_loss, a_loss = self.disc[i].train(expert_obs[i], expert_act[i], agent_obs[i], agent_act[i])
+                x = dm[i].transform(agent_obs[i], agent_act[i])
+                rho_1 = 1.0 * agent_pdf[i].prob(x) / expert_pdf[i].prob(x)
+                rho_2 = 1.0
+                for j in range(self.n_agent):
+                    x = dm[j].transform(agent_obs[j], agent_act[j])
+                    rho_1 *= expert_pdf[j].prob(x)
+                    rho_2 *= agent_pdf[j].prob(x)
+                alpha = self.lbd * np.clip(rho_1 / rho_2, 1e-1, 1)
+                # alpha = self.lbd * np.minimum(rho_1 / rho_2, 1)
+                # alpha = self.lbd * np.maximum(rho_1 / rho_2, 1e-1)
+                # alpha = self.lbd * 1.0 * rho_1 / rho_2
+                # print("rho_1:{} | rho_2:{} | alpha:{}".format(rho_1, rho_2, alpha))
+
+                loss, e_loss, a_loss = self.disc[i].train(expert_obs[i], expert_act, agent_obs[i], agent_act, alpha)
                 d_loss[i] += loss
                 de_loss += e_loss
                 da_loss += a_loss
@@ -228,13 +260,13 @@ class GAIL(BaseAgent):
         obs_n, act_n, _, _, _, _ = learning_dataset.sample(5)
         for i in range(self.n_agent):
             # print("agent-(s,a): ({},{})".format(obs_n, act_n))
-            print("agent-reward-D: {}".format(self.disc[i].get_reward(obs_n[i], act_n[i])))
+            print("agent-reward-D: {}".format(self.disc[i].get_reward(obs_n[i], act_n)))
             obs_en, act_en = expert_dataset.sample(5)
             # print("expert-(s,a): ({},{})".format(obs_en, act_en))
-            print("expert-reward-D: {}".format(self.disc[i].get_expert_reward(obs_en[i], act_en[i])))
+            print("expert-reward-D: {}".format(self.disc[i].get_expert_reward(obs_en[i], act_en)))
 
         # compute rewards and gaes
-        learning_dataset.compute(self.gamma, [self.disc[i].get_reward for i in range(self.n_agent)])
+        learning_dataset.compute(self.gamma, [self.disc[i].get_reward for i in range(self.n_agent)], True)
 
         ## p step
         # p_loss = [0.] * self.n_agent

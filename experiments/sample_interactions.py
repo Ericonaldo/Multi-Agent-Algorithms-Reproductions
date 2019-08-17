@@ -41,6 +41,7 @@ if __name__ == '__main__':
     parser.add_argument("--scenario", type=str, default="simple", help="name of the scenario script")
     parser.add_argument("--agent", type=str, default="rule", help="name of the sampling agents")
     parser.add_argument("--max_episode_len", type=int, default=50, help="maximum episode length")
+    parser.add_argument("--discrete", action="store_true", default=False, help="is the action discrete")
     parser.add_argument("--episodes", type=int, default=100, help="number of episodes")
     # parser.add_argument("--num_agents", type=int, default=2, help="number of agents")
     # parser.add_argument("--good_policy", type=str, default="maddpg", help="policy for good agents")
@@ -77,13 +78,15 @@ if __name__ == '__main__':
 
     agent = BaseAgent(env, args.exp_name)
     if args.agent == 'maddpg':
-        agent = MADDPG(sess, env, args.exp_name, num_agents)
+        name = 'maddpg'
+        agent = MADDPG(sess, env, name, num_agents)
         agent.init()
         agent.load(load_dir, epoch=args.load_epoch)
     elif args.agent == 'rule':
-        agent = RuleAgent(env, args.exp_name, args.scenario)
+        agent = RuleAgent(env, args.exp_name, args.scenario, args.discrete)
     elif args.agent == 'bc':
-        agent = BehaviorClone(sess, env, args.exp_name, num_agents)
+        name = 'behavior_clone' +'/discrete-{}'.format(args.discrete)
+        agent = BehaviorClone(sess, env, name, num_agents)
         agent.init()
         agent.load(load_dir, epoch=args.load_epoch)
     else:
@@ -101,6 +104,7 @@ if __name__ == '__main__':
     for ep in range(0, num_episodes):
         t_start = time.time()
         obs_n = env.reset()
+        print(obs_n)
         episode_r_n = [0. for _ in range(num_agents)]
 
         for step in range(0, args.max_episode_len):
@@ -120,6 +124,7 @@ if __name__ == '__main__':
 
             if done:
                 break
+        print(act_n)
 
         episode_r_n = [round(_, 3) for _ in episode_r_n]
         episode_r_n_sum.append(np.sum(episode_r_n))

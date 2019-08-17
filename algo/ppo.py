@@ -150,10 +150,10 @@ class PPO(BaseAgent):
             act_probs_old = tf.reduce_sum(act_probs_old, axis=1)
 
             with tf.variable_scope('bc_init'):
-                # self._bc_loss = tf.reduce_mean(tf.square(self.tar_act - self.logits))
-                self.bc_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.tar_act, logits=self.logits))
+                self._bc_loss = tf.reduce_mean(tf.square(self.tar_act - self.act_probs))
+                # self.bc_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.tar_act, logits=self.logits))
                 bc_optim = tf.train.AdamOptimizer(a_lr)
-                self._train_bc_op = bc_optim.minimize(self.bc_loss)
+                self._train_bc_op = bc_optim.minimize(self._bc_loss)
 
             with tf.variable_scope('optimization'):
                 # construct computation graph for loss_clip
@@ -190,7 +190,7 @@ class PPO(BaseAgent):
 
     def bc_init(self, obs, tar_act):
         feed_dict = {self.obs_phs: obs, self.tar_act:tar_act}
-        bc_loss, _ = self.sess.run([self.bc_loss, self._train_bc_op], feed_dict=feed_dict)
+        bc_loss, _ = self.sess.run([self._bc_loss, self._train_bc_op], feed_dict=feed_dict)
         return bc_loss
 
     def act(self, obs):
@@ -203,9 +203,10 @@ class PPO(BaseAgent):
 
         return act, value
 
-    def train(self, obs, actions, rewards, v_preds_next, gaes):
+    def update_oldpi(self):
         self.sess.run(self.update_oldpi_op)
 
+    def train(self, obs, actions, rewards, v_preds_next, gaes):
         # update actor
         _, a_loss = self.sess.run([self.a_train_op, self.a_loss], feed_dict={  self.obs_phs: obs,
                                                     self.actions: actions,

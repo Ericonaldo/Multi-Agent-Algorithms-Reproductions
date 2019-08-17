@@ -163,6 +163,7 @@ class MABehavioralCloning(BaseAgent):
         dir_name = os.path.join(dir_path, self.name)
         model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self.name)
         saver = tf.train.Saver(model_vars)
+        print("loading [*] Model from dir: {}".format(dir_name))
         if epoch is not None:
             file_path = os.path.join(dir_name, "{}-{}".format(self.name, epoch))
             saver.restore(self.sess, file_path)

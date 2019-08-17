@@ -37,6 +37,35 @@ class BaseModel(object):
 def flatten(_tuple):
     return reduce(operator.mul, _tuple)
 
+# ------ scheduler --------
+def constant(p):
+    return 1
+
+def linear(p):
+    return 1-p
+
+
+def middle_drop(p):
+    eps = 0.75
+    if 1-p<eps:
+        return eps*0.1
+    return 1-p
+
+def double_linear_con(p):
+    p *= 2
+    eps = 0.125
+    if 1-p<eps:
+        return eps
+    return 1-p
+
+def double_middle_drop(p):
+    eps1 = 0.75
+    eps2 = 0.25
+    if 1-p<eps1:
+        if 1-p<eps2:
+            return eps2*0.5
+        return eps1*0.1
+    return 1-p
 
 def softmax(X, theta=1.0, axis=None):
     """ Compute the softmax of each element along an axis of X.
@@ -73,3 +102,26 @@ def softmax(X, theta=1.0, axis=None):
     if len(np.shape(X)) == 1: p = p.flatten()
 
     return p
+
+schedules = {
+    'linear':linear,
+    'constant':constant,
+    'double_linear_con':double_linear_con,
+    'middle_drop':middle_drop,
+    'double_middle_drop':double_middle_drop
+}
+
+class Scheduler(object):
+    def __init__(self, v, nvalues, schedule):
+        self.n = 0.
+        self.v = v
+        self.nvalues = nvalues
+        self.schedule = schedules[schedule]
+
+    def value(self):
+        current_value = self.v*self.schedule(self.n/self.nvalues)
+        self.n += 1.
+        return current_value
+
+    def value_steps(self, steps):
+        return self.v*self.schedule(steps/self.nvalues)

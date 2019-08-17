@@ -51,7 +51,7 @@ if __name__ == '__main__':
     print('=== Configuration:\n', args)
 
     is_evaluate = args.is_evaluate
-    is_render = args.render or args.is_evaluate
+    is_render = args.render# or args.is_evaluate
 
     # =========================== initialize environment =========================== #
 
@@ -67,7 +67,8 @@ if __name__ == '__main__':
 
     # num_agents = min(args.num_agents, env.n)
     num_agents = env.n
-    bc = MABehavioralCloning(sess, env, args.exp_name, num_agents, args.batch_size, args.lr, args.discrete, args.sample_action)
+    name = args.exp_name+'-discrete-{}'.format(args.discrete)
+    bc = MABehavioralCloning(sess, env, name, num_agents, args.batch_size, args.lr, args.discrete, args.sample_action)
     dataset = Dataset(args.scenario, num_agents, args.batch_size)
     dataset.load_data(args.data_dir)
     if len(dataset) < args.batch_size:
@@ -102,7 +103,7 @@ if __name__ == '__main__':
         bc.init()  # run self.sess.run(tf.global_variables_initializer()) 
 
     if args.restore or is_evaluate:
-        load_dir = os.path.join(args.load_dir, args.scenario) +'/{}'.format(args.discrete)
+        load_dir = os.path.join(args.load_dir, args.scenario)
         bc.load(load_dir, epoch=args.load_iteration)
 
     # ======================================== main loop ======================================== #
@@ -110,6 +111,8 @@ if __name__ == '__main__':
     t_start = time.time()
     total_step = 0
     epochs = len(dataset) // batch_size 
+    if epochs == 0:
+        epochs = 1
     iterations = args.iterations
     if is_evaluate:
         iterations = 1
@@ -133,7 +136,7 @@ if __name__ == '__main__':
             print("\n---- iteration: {} | [loss]: {}".format(iteration, loss))
 
             if (iteration+1) % args.save_interval == 0:
-                bc.save(args.save_dir+args.scenario+'/{}'.format(args.discrete), iteration+1, args.max_to_keep)
+                bc.save(args.save_dir+args.scenario, iteration+1, args.max_to_keep)
 
         # =========================== start evaluating =========================== #
 

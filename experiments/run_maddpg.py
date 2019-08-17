@@ -57,7 +57,7 @@ if __name__ == '__main__':
 
     # =========================== initialize environment =========================== #
     is_evaluate = args.is_evaluate
-    is_render = args.render or args.is_evaluate
+    is_render = args.render# or args.is_evaluate
     step = 0
     scenario = scenarios.load(args.scenario+".py").Scenario()
     world = scenario.make_world()
@@ -122,6 +122,7 @@ if __name__ == '__main__':
         print("Start Training...")
     else:
         print("Start Evaluating...")
+        num_episodes = 100
 
     t_start = time.time()
     total_step = 0

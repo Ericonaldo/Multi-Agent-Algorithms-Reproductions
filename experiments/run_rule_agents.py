@@ -23,6 +23,7 @@ if __name__ == '__main__':
     parser.add_argument("--scenario", type=str, default="simple", help="name of the scenario script")
     parser.add_argument("--max_episode_len", type=int, default=25, help="maximum episode length")
     parser.add_argument("--episodes", type=int, default=100, help="number of episodes")
+    parser.add_argument("--discrete", action="store_true", default=False, help="is the action discrete")
     # parser.add_argument("--num_agents", type=int, default=2, help="number of agents")
     # parser.add_argument("--good_policy", type=str, default="maddpg", help="policy for good agents")
     # parser.add_argument("--adv_policy", type=str, default="maddpg", help="policy of adversaries")
@@ -44,7 +45,7 @@ if __name__ == '__main__':
 
     env = multiagent.environment.MultiAgentEnv(world, scenario.reset_world, scenario.reward, scenario.observation)
     num_agents = env.n
-    agent = RuleAgent(env, args.exp_name, args.scenario)
+    agent = RuleAgent(env, args.exp_name, args.scenario, args.discrete)
 
     # ======================================== main loop ======================================== #
     num_episodes = args.episodes

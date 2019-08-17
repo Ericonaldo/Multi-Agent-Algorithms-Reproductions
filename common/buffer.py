@@ -323,10 +323,13 @@ class PPODataset(Dataset):
 
         return batch_obs_n, batch_act_n, batch_reward_n, batch_values_n, batch_next_values_n, batch_gaes_n
 
-    def compute(self, gamma, reward_funcs=None):
+    def compute(self, gamma, reward_funcs=None, ma=False):
         for i in range(self.agent_num):
             if reward_funcs is not None:
-                self._rewards[i] = reward_funcs[i](self._observations[i], self._actions[i])
+                if ma:
+                    self._rewards[i] = reward_funcs[i](self._observations[i], self._actions)
+                else:
+                    self._rewards[i] = reward_funcs[i](self._observations[i], self._actions[i])
             self._values_next[i] = self._values[i][1:]+[0]#[self._values[i][-1]]
             deltas = [r_t + gamma * v_next - v for r_t, v_next, v in zip(self._rewards[i], self._values_next[i], self._values[i])]
             # calculate generative advantage estimator(lambda = 1), see ppo paper eq(11)

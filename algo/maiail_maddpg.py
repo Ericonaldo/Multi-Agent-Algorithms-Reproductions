@@ -23,12 +23,13 @@ def logit_bernoulli_entropy(logits):
     return ent
 
 class Discriminator(BaseModel):
-    def __init__(self, sess, expert_si_an, agent_si_an, alpha_i, entcoeff=0.001, lr=1e-2, name=None, agent_id=None, units=128, e_w=1, a_w=1):
+    def __init__(self, sess, expert_si_an, agent_si_an, alpha_i, entcoeff=0.001, lr=1e-2, name=None, agent_id=None, units=128, e_w=1, a_w=1, grad_norm_clipping=0.5):
         super().__init__(name)
 
         self.sess = sess
         self.agent_id = agent_id
         self.units = units
+        self.grad_norm_clipping = grad_norm_clipping
 
         self._loss = None
         self._train_op = None
@@ -47,8 +48,8 @@ class Discriminator(BaseModel):
         with tf.variable_scope('loss'):
             self.loss_expert = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_1, labels=tf.ones_like(self.logit_1)))
             # loss_expert = tf.reduce_mean(tf.log(tf.nn.sigmoid(self.prob_1)+1e-8))
-            self.loss_agent = tf.reduce_mean(tf.expand_dims(self.alpha_i,-1) * tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_2, labels=tf.zeros_like(self.logit_2)))
-            # self.loss_agent = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_2, labels=tf.zeros_like(self.logit_2)))
+            # self.loss_agent = tf.reduce_mean(tf.expand_dims(self.alpha_i,-1) * tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_2, labels=tf.zeros_like(self.logit_2)))
+            self.loss_agent = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_2, labels=tf.zeros_like(self.logit_2)))
             # loss_agent = tf.reduce_mean(tf.log(1 - self.prob_2+1e-8))
             logits = tf.concat([self.logit_1, self.logit_2], 0)
             entropy = tf.reduce_mean(logit_bernoulli_entropy(logits))
@@ -59,13 +60,19 @@ class Discriminator(BaseModel):
 
 
             optimizer = tf.train.AdamOptimizer(lr)
-            # grad_vars = optimizer.compute_gradients(self._loss, self.trainable_variables)
-            # self._train_op = optimizer.apply_gradients(grad_vars)
-            self._train_op = optimizer.minimize(self._loss)
+            gradients = optimizer.compute_gradients(self._loss, self.trainable_variables)
+            if self.grad_norm_clipping is not None:
+                for i, (grad, var) in enumerate(gradients):
+                    if grad is not None:
+                        gradients[i] = (tf.clip_by_norm(grad, self.grad_norm_clipping), var)
+            self._train_op = optimizer.apply_gradients(gradients)
+            # self._train_op = optimizer.minimize(self._loss)
 
         # self.expert_reward = tf.log(tf.nn.sigmoid(self.logit_1)+1e-8)
-        self.expert_reward = tf.nn.sigmoid(self.logit_1)*2.0 - 1
-        self.reward = tf.nn.sigmoid(self.logit_2)*2.0 - 1
+        # self.expert_reward = tf.nn.sigmoid(self.logit_1)*2.0 - 1
+        self.expert_reward = tf.log(tf.nn.sigmoid(self.logit_1)+1e-8) - tf.log(1-tf.nn.sigmoid(self.logit_1)+1e-8)
+        # self.reward = tf.nn.sigmoid(self.logit_2)*2.0 - 1
+        self.reward = tf.log(tf.nn.sigmoid(self.logit_2)+1e-8) - tf.log(1-tf.nn.sigmoid(self.logit_2)+1e-8) 
         # self.reward = tf.log(tf.nn.sigmoid(self.logit_2)+1e-8)
         # self.reward = -tf.log(1-tf.nn.sigmoid(self.logit_2)+1e-8)
         # self.reward = tf.expand_dims(self.alpha_i,-1) * tf.log(tf.nn.sigmoid(self.logit_2)+1e-8)
@@ -125,14 +132,14 @@ class MADiscriminator(object):
         self.expert_obs_phs_n = [tf.placeholder(dtype=tf.float32, shape=(None,) + obs_space[i]) for i in range(n_agent)]
         self.expert_act_phs_n = [tf.placeholder(dtype=tf.float32, shape=(None,) + act_space[i]) for i in range(n_agent)]
         self.expert_obs_n = self.expert_obs_phs_n
-        self.expert_act_n = self.expert_act_phs_n#tf.concat(self.expert_act_phs_n, axis=1)
-        self.expert_si_an = [tf.concat([self.expert_obs_n[i], self.expert_act_n[i]], axis=1) for i in range(n_agent)]
+        self.expert_act_n = tf.concat(self.expert_act_phs_n, axis=1)
+        self.expert_si_an = [tf.concat([self.expert_obs_n[i], self.expert_act_n], axis=1) for i in range(n_agent)]
 
         self.agent_obs_phs_n = [tf.placeholder(dtype=tf.float32, shape=(None,) + obs_space[i]) for i in range(n_agent)]
         self.agent_act_phs_n = [tf.placeholder(dtype=tf.float32, shape=(None,) + act_space[i]) for i in range(n_agent)]
         self.agent_obs_n = self.agent_obs_phs_n
-        self.agent_act_n = self.agent_act_phs_n# tf.concat(self.agent_act_phs_n, axis=1)
-        self.agent_si_an = [tf.concat([self.agent_obs_n[i], self.agent_act_n[i]], axis=1) for i in range(n_agent)]
+        self.agent_act_n = tf.concat(self.agent_act_phs_n, axis=1)
+        self.agent_si_an = [tf.concat([self.agent_obs_n[i], self.agent_act_n], axis=1) for i in range(n_agent)]
         
         """
         if lower_dimension is None:
@@ -223,8 +230,8 @@ class MADiscriminator(object):
         self.learning_dataset.shuffle()
         # train
         for epoch in range(train_epochs):
-            expert_batch_obs_n, expert_batch_act_n = self.expert_dataset.next()
-            agent_batch_obs_n, agent_batch_act_n = self.learning_dataset.next() 
+            expert_batch_obs_n, expert_batch_act_n = self.expert_dataset.sample()
+            agent_batch_obs_n, agent_batch_act_n = self.learning_dataset.sample() 
 
             """
             expert_batch_sa_n = [None for _ in range(self.n_agent)]
@@ -253,7 +260,7 @@ class MADiscriminator(object):
                     x = dm[j].transform(agent_batch_obs_n[j], agent_batch_act_n[j])
                     rho_1 *= expert_pdf[j].prob(x)
                     rho_2 *= agent_pdf[j].prob(x)
-                print("alpha mean:{} var:{}".format(np.mean(rho_1 / rho_2), np.var(rho_1 / rho_2)))
+                # print("alpha mean:{} var:{}".format(np.mean(rho_1 / rho_2), np.var(rho_1 / rho_2)))
                 alpha = self.lbd * np.clip(rho_1 / rho_2, 1e-1, 1)
                 # alpha = self.lbd * np.minimum(rho_1 / rho_2, 1)
                 # alpha = self.lbd * np.maximum(rho_1 / rho_2, 1e-1)
@@ -287,7 +294,7 @@ class MAIAIL(BaseAgent):
             # Policy
             print("initialize policy agents ...")
             policy_name = "maddpg"
-            self.maddpg = MADDPG(sess, env, policy_name, n_agent, batch_size, actor_lr=lr, critic_lr=lr, gamma=gamma, tau=tau, memory_size=memory_size)
+            self.maddpg = MADDPG(sess, env, policy_name, n_agent, batch_size, actor_lr=lr, critic_lr=lr, gamma=gamma, tau=tau, memory_size=memory_size, grad_norm_clipping=0.5, num_units=units)
 
             # Discriminator
             print("initialize discriminators ...")
@@ -337,6 +344,7 @@ class MAIAIL(BaseAgent):
         dir_name = os.path.join(dir_path, self.name)
         model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.name)
         saver = tf.train.Saver(model_vars)
+        print("loading [*] Model from dir: {}".format(dir_name))
         if epoch is not None:
             file_path = os.path.join(dir_name, "{}-{}".format(self.name, epoch))
             saver.restore(self.sess, file_path)
@@ -344,7 +352,11 @@ class MAIAIL(BaseAgent):
             file_path = dir_name
             saver.restore(self.sess, tf.train.latest_checkpoint(file_path))
 
+        print("[*] Model loaded in file: {}".format(file_path))
+
     def train(self, expert_pdf, agent_pdf, dm):
+        if len(self.learning_dataset) < self.batch_size:
+            return None
 
         ## d step
         d_loss = [0.] * self.n_agent
@@ -362,10 +374,10 @@ class MAIAIL(BaseAgent):
         de_loss = [_  / self.d_step for _ in de_loss]
         da_loss = [_  / self.d_step for _ in da_loss]
 
-        obs_n, act_n = self.learning_dataset.next(5)
+        obs_n, act_n = self.learning_dataset.sample(5)
         # print("agent-(s,a): ({},{})".format(obs_n, act_n))
         print("agent-reward-D: {}".format(self.madcmt.get_reward(obs_n, act_n, expert_pdf, agent_pdf, dm)))
-        obs_en, act_en = self.expert_dataset.next(5)
+        obs_en, act_en = self.expert_dataset.sample(5)
         # print("expert-(s,a): ({},{})".format(obs_en, act_en))
         print("expert-reward-D: {}".format(self.madcmt.get_expert_reward(obs_en, act_en, expert_pdf, agent_pdf)))
 
@@ -403,7 +415,7 @@ class MAIAIL(BaseAgent):
 
 
         # clear buffer and dataset
-        self.maddpg.clear_buffer()
+        # self.maddpg.clear_buffer()
         self.madcmt.clear_dataset()
 
         return {'d_loss': d_loss, 'de_loss': de_loss,'da_loss': da_loss, 'pa_loss': pa_loss, 'pc_loss': pc_loss} 

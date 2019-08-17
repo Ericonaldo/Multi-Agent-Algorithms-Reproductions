@@ -48,8 +48,8 @@ class Actor(BaseModel):
             self._soft_update_op = [tf.assign(t_var, self._tau * e_var + (1. - self._tau) * t_var) for t_var, e_var in zip(self.t_variables, self.e_variables)]
 
         with tf.name_scope("BCInit"):
-            self._bc_loss = tf.reduce_mean(tf.square(self.tar_act - self._eval_act))
-            # self._bc_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.tar_act, logits=self.logits))
+            self._bc_loss = tf.reduce_mean(tf.square(self.tar_act - tf.nn.softmax(self.logits)))
+            #self._bc_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.tar_act, logits=self.logits))
             bc_optim = tf.train.AdamOptimizer(self._lr)
             self._train_bc_op = bc_optim.minimize(self._bc_loss)
 
@@ -115,23 +115,13 @@ class Actor(BaseModel):
 
     def act(self, obs):
         act = self.sess.run(self._eval_act, feed_dict={self.obs_input: obs})
-        #label = np.argmax(act, axis=1)
-        #act = np.eye(act.shape[-1])[label]
 
         return act[0]
 
-    def target_act(self, obs): # , one_hot=False):
+    def target_act(self, obs):
         act = self.sess.run(self._target_act, feed_dict={self.obs_input: obs})
-        # label = np.argmax(act, axis=1)
-        # act = np.eye(act.shape[-1])[label]
-        
-        return act
-        # act = np.argmax(policy, axis=1)
 
-        # if one_hot:
-        #     return np.eye(*policy.shape)[act]
-        # else:
-        #     return act
+        return act
 
     def train(self, feed_dict):
         loss, _ = self.sess.run([self._loss, self._train_op], feed_dict=feed_dict)
@@ -319,10 +309,13 @@ class MADDPG(BaseAgent):
     def bc_init(self, init_iter, expert_dataset):
         print("bc initialization for {} iterations".format(init_iter))
         epoch = len(expert_dataset) // self.batch_size
+        batch_size = self.batch_size
+        if epoch == 0:
+            epoch = 1
         for _ in range(init_iter): 
             bc_loss = [0.] * self.n_agent
             for __ in range(epoch):
-                obs_en, act_en = expert_dataset.sample(self.batch_size)
+                obs_en, act_en = expert_dataset.sample(batch_size)
                 for i in range(self.n_agent):
                     act_phs_i = self.tar_act_phs[i]
                     obs_phs_i = self.obs_phs[i]
@@ -394,12 +387,14 @@ class MADDPG(BaseAgent):
         #    print(i)
         #print("sum {} vars".format(len(model_vars)))
         saver = tf.train.Saver(model_vars)
+        print("loading [*] Model from dir: {}".format(dir_name))
         if epoch is not None:
             file_path = os.path.join(dir_name, "{}-{}".format(self.name, epoch))
             saver.restore(self.sess, file_path)
         else:
             file_path = dir_name
             saver.restore(self.sess, tf.train.latest_checkpoint(file_path))
+        print("[*] Model loaded in file: {}".format(file_path))
         # print("[!] Load model failed, please check {} exists".format(file_path))
 
     def train_step(self, batch_list):
