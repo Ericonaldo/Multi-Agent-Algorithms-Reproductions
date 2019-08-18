@@ -242,6 +242,11 @@ class PPO(BaseAgent):
 
         return act, value
 
+    def prob(self, obs, acts):
+        feed_dict = {self.obs_phs: obs}
+        act_prob = self.pi.act(feed_dict)
+        return act_prob
+
     def update_oldpi(self):
         self.sess.run(self.update_oldpi_op)
 

@@ -266,8 +266,10 @@ class MAIAIL(BaseAgent):
             agent_obs, agent_act, _, _, _, _ = learning_dataset.sample(
                 self.batch_size)
 
-            rho_1 = reduce(operator.mul, [expert_pdf[i].prob(dm[i].transform(agent_obs[i], agent_act[i])) for i in range(self.n_agent)])
-            rho_2 = reduce(operator.mul, [self.ppo[i].prob(agent_obs[i], agent_act[i]) for i in range(self.n_agent)])
+            rho_1 = reduce(operator.mul, [expert_pdf[i].prob(dm[i].transform(
+                agent_obs[i], agent_act[i])) for i in range(self.n_agent)])
+            rho_2 = reduce(operator.mul, [self.ppo[i].prob(
+                agent_obs[i], agent_act[i]) for i in range(self.n_agent)])
 
             for i in range(self.n_agent):
                 # x = dm[i].transform(agent_obs[i], agent_act[i])
@@ -292,12 +294,12 @@ class MAIAIL(BaseAgent):
                 loss, e_loss, a_loss = self.disc[i].train(
                     expert_obs[i], expert_act, agent_obs[i], agent_act, alpha)
                 d_loss[i] += loss
-                de_loss += e_loss
-                da_loss += a_loss
+                de_loss[i] += e_loss
+                da_loss[i] += a_loss
 
-        d_loss = [_ / self.d_step for _ in d_loss]
-        de_loss = [_ / self.d_step for _ in de_loss]
-        da_loss = [_ / self.d_step for _ in da_loss]
+        d_loss = list(map(lambda x: x / self.d_step, d_loss))  # [_ / self.d_step for _ in d_loss]
+        de_loss = list(map(lambda x: x / self.d_step, de_loss))  # [_ / self.d_step for _ in de_loss]
+        da_loss = list(map(lambda x: x / self.d_step, da_loss))  # [_ / self.d_step for _ in da_loss]
 
         obs_n, act_n, _, _, _, _ = learning_dataset.sample(5)
         for i in range(self.n_agent):
@@ -318,6 +320,7 @@ class MAIAIL(BaseAgent):
         pa_loss = [0.0] * self.n_agent
         pc_loss = [0.0] * self.n_agent
         print("train policy for {} times".format(self.p_step))
+
         for i in range(self.n_agent):
             self.ppo[i].update_oldpi()
             for _ in range(self.p_step):  # train policy 6 times
@@ -328,7 +331,7 @@ class MAIAIL(BaseAgent):
                 pa_loss[i] += t_info['a_loss']
                 pc_loss[i] += t_info['c_loss']
 
-        pa_loss = [_/self.p_step for _ in pa_loss]
-        pc_loss = [_/self.p_step for _ in pc_loss]
+        pa_loss = list(map(lambda x: x / self.p_step, pa_loss))  # [_ / self.p_step for _ in pa_loss]
+        pc_loss = list(map(lambda x: x / self.p_step, pc_loss))  # [_ / self.p_step for _ in pc_loss]
 
         return {'d_loss': d_loss, 'de_loss': de_loss, 'da_loss': da_loss, 'pa_loss': pa_loss, 'pc_loss': pc_loss}
