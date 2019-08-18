@@ -1,190 +1,258 @@
 import os
 import random
 import operator
-import numpy as np
 import tensorflow as tf
+import numpy as np
 import tensorflow.contrib as tc
 
-from common.utils import flatten, softmax
 from common.utils import BaseModel, BaseAgent
-from common.buffer import Dataset, Transition
-from algo.ppo import PPO
 
-# train_policy_times = 6
-# train_discriminator_times = 2
-# units = 128
-
-def logsigmoid(a):
-    '''Equivalent to tf.log(tf.sigmoid(a))'''
-    return -tf.nn.softplus(-a)
-
-def logit_bernoulli_entropy(logits):
-    ent = (1.-tf.nn.sigmoid(logits))*logits - logsigmoid(logits)
-    return ent
-
-class Discriminator(BaseModel):
-    def __init__(self, sess, env, name=None, agent_id=None, entcoeff=0.001, lr=1e-2, units=128):
+class Actor(BaseModel):
+    def __init__(self, sess, name, agent_id, act_dim, obs_input, lr=0.01, units=64, discrete=True, trainable=True):
         super().__init__(name)
 
+        self._lr = lr
+        self.num_units = units
         self.sess = sess
         self.agent_id = agent_id
-        self.units = units
+        self._act_dim = act_dim
+        self.obs_input = obs_input
+        self.trainable = trainable
+        self.discrete = discrete
 
         self._loss = None
         self._train_op = None
 
-        self.scope = tf.get_variable_scope().name
+        self._scope = tf.get_variable_scope().name
+        self._act_probs = tf.nn.softmax(self._construct(act_dim))
+        
+        self.act_stochastic = tf.multinomial(tf.log(self.act_probs), num_samples=1)
+        self.act_stochastic = tf.reshape(self.act_stochastic, shape=[-1])
 
-        obs_space = env.observation_space[agent_id].shape
-        act_space = (env.action_space[agent_id].n,)
+        self.act_deterministic = tf.argmax(self.act_probs, axis=1)
 
-        self.expert_obs_phs = tf.placeholder(dtype=tf.float32, shape=(None,) + obs_space)
-        self.expert_act_phs = tf.placeholder(dtype=tf.float32, shape=(None,) + act_space)
-        self.expert_si_ai = tf.concat([self.expert_obs_phs, self.expert_act_phs], axis=1)
+    @property
+    def variables(self):
+        return tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self._scope)
 
-        self.agent_obs_phs = tf.placeholder(dtype=tf.float32, shape=(None,) + obs_space)
-        self.agent_act_phs = tf.placeholder(dtype=tf.float32, shape=(None,) + act_space)
-        self.agent_si_ai = tf.concat([self.agent_obs_phs, self.agent_act_phs], axis=1)
+    @property
+    def act_probs(self):
+        return self._act_probs
 
-        with tf.variable_scope('network') as network_scope:
-            self.logit_1 = self._construct(input_ph=self.expert_si_ai)
-            network_scope.reuse_variables()  # share parameter
-            self.logit_2 = self._construct(input_ph=self.agent_si_ai)
-
-        with tf.variable_scope('loss'):
-            self.loss_expert = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_1, labels=tf.ones_like(self.logit_1)))
-            # loss_expert = tf.reduce_mean(tf.log(tf.nn.sigmoid(self.prob_1)+1e-8))
-            self.loss_agent = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.logit_2, labels=tf.zeros_like(self.logit_2)))
-            # loss_agent = tf.reduce_mean(tf.log(1 - self.prob_2+1e-8))
-            logits = tf.concat([self.logit_1, self.logit_2], 0)
-            entropy = tf.reduce_mean(logit_bernoulli_entropy(logits))
-            entropy_loss = -entcoeff*entropy
-            self._loss = self.loss_expert + self.loss_agent + entropy_loss
-            # self._loss = loss_expert + loss_agent
-            # self._loss = loss_expert
-
-
-            optimizer = tf.train.AdamOptimizer(lr)
-            # grad_vars = optimizer.compute_gradients(self._loss, self.trainable_variables)
-            # self._train_op = optimizer.apply_gradients(grad_vars)
-            self._train_op = optimizer.minimize(self._loss)
-
-        # self.expert_reward = tf.log(tf.nn.sigmoid(self.logit_1)+1e-8)
-        self.expert_reward = tf.nn.sigmoid(self.logit_1)*2.0 - 1
-        self.reward = tf.nn.sigmoid(self.logit_2)*2.0 - 1
-        # self.reward = tf.log(tf.nn.sigmoid(self.logit_2)+1e-8)
-        # self.reward = -tf.log(1-tf.nn.sigmoid(self.logit_2)+1e-8)
-
-    def _construct(self, input_ph, norm=False):
-        l1 = tf.layers.dense(inputs=input_ph, units=self.units, activation=tf.nn.leaky_relu, name='l1')
+    def _construct(self, out_dim, norm=False):
+        l1 = tf.layers.dense(self.obs_input, units=self.num_units, activation=tf.nn.relu, name="l1", trainable=self.trainable)
         if norm: l1 = tc.layers.layer_norm(l1)
-        l2 = tf.layers.dense(inputs=l1, units=self.units, activation=tf.nn.leaky_relu, name='l2')
+
+        l2 = tf.layers.dense(l1, units=self.num_units, activation=tf.nn.relu, name="l2", trainable=self.trainable)
         if norm: l2 = tc.layers.layer_norm(l2)
-        l3 = tf.layers.dense(inputs=l2, units=self.units // 2, activation=tf.nn.leaky_relu, name='l3')
-        out = tf.layers.dense(inputs=l3, units=1, activation=tf.identity, name='prob')
+
+        self.logits = tf.layers.dense(l2, units=out_dim, activation=None, name="out", trainable=self.trainable)
+        out = self.logits
 
         return out
 
-    def train(self, expert_obs, expert_act, agent_obs, agent_act):
-        feed_dict = dict()
-        feed_dict[self.agent_obs_phs] = agent_obs
-        feed_dict[self.agent_act_phs] = agent_act
-        feed_dict[self.expert_obs_phs] = expert_obs
-        feed_dict[self.expert_act_phs] = expert_act
-        loss, e_loss, a_loss, _ = self.sess.run([self._loss, self.loss_expert, self.loss_agent, self._train_op], feed_dict=feed_dict)
+    def act(self, feed_dict, stochastic=True):
+        if self.discrete:
+            if stochastic:
+                return self.sess.run(self.act_stochastic, feed_dict=feed_dict)
+            else:
+                return self.sess.run(self.act_deterministic, feed_dict=feed_dict)
+        else:
+            return self.sess.run(self._act_probs, feed_dict=feed_dict)
 
-        return loss, e_loss, a_loss
 
-    def get_reward(self, obs, act):
-        feed_dict = {self.agent_obs_phs:obs, self.agent_act_phs:act}
-        reward = self.sess.run(self.reward, feed_dict=feed_dict)
-        # print(self.sess.run(tf.nn.sigmoid(self.logit_2), feed_dict=feed_dict))
-        
-        return reward.reshape((-1,))
+class Critic(BaseModel):
+    def __init__(self, sess, name, agent_id, obs_phs, lr, units=64):
+        super().__init__(name)
 
-    def get_expert_reward(self, obs, act):
-        feed_dict = {self.expert_obs_phs:obs, self.expert_act_phs:act}
-        reward = self.sess.run(self.expert_reward, feed_dict=feed_dict)
-        # print(self.sess.run(tf.nn.sigmoid(self.logit_2), feed_dict=feed_dict))
-        
-        return reward.reshape((-1,))
+        self.sess = sess
+        self.agent_id = agent_id
+        self.num_units = units
+        self._lr = lr
+        self.obs_input = obs_phs
+
+        self._scope = tf.get_variable_scope().name
+        self._v = self._construct()
 
     @property
-    def trainable_variables(self):
-        return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.scope)
+    def variables(self):
+        return tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self._scope)
 
+    @property
+    def value(self):
+        return self._v
 
-class GAIL(BaseAgent):
-    def __init__(self, sess, env, scenario, name, n_agent, batch_size=128, entcoeff=0.001, lr=1e-2, gamma=0.99, p_step=3, d_step=1, units=128, discrete=True):
+    def get_value(self, feed_dict):
+        return self.sess.run(self._v, feed_dict=feed_dict)
+
+    def _construct(self, norm=False):
+        l1 = tf.layers.dense(self.obs_input, units=self.num_units, activation=tf.nn.relu, name="l1")
+        if norm: l1 = tc.layers.layer_norm(l1)
+
+        l2 = tf.layers.dense(l1, units=self.num_units, activation=tf.nn.relu, name="l2")
+        if norm: l2 = tc.layers.layer_norm(l2)
+
+        out = tf.layers.dense(l2, units=1, name="v")
+
+        return out
+ 
+
+class PPO(BaseAgent):
+    def __init__(self, sess, env, name, agent_id, a_lr=0.01, c_lr=0.01, gamma=0.95, clip_value=0.2, ent_w=0.01, num_units=64, discrete=True):
+        """
+        :param clip_value:
+        :param en_w: parameter for entropy bonus
+        """
         super().__init__(env, name)
         # == Initialize ==
         self.sess = sess
-        self.n_agent = n_agent
-        self.batch_size = batch_size
-        self.p_step = p_step
-        self.d_step = d_step
+        self.agent_id = agent_id
         self.gamma = gamma
+        self.num_units = num_units
         self.discrete = discrete
 
-        self.ppo = [] # ppo agents
-        self.disc = [] # discriminators
+        self.sta_dim = env.observation_space[agent_id].shape[0]
+        self.act_dim = env.action_space[agent_id].n
+        #self.sta_dim = env.observation_space.shape[0]
+        #self.act_dim = env.action_space.n
 
-        # == Construct Network for Each Agent ==
-        with tf.variable_scope(self.name):
-            # Policy
-            print("initialize policy agents ...")
-            for i in range(self.n_agent):
-                with tf.variable_scope("agent_{}".format(i)):
-                    self.ppo.append(PPO(self.sess, env, name=name, agent_id=i, a_lr=lr, c_lr=lr, gamma=gamma, num_units=units, discrete=discrete))
 
-            # Discriminator
-            print("initialize discriminators ...")
-            # Discriminator for each agents
-            for i in range(self.n_agent):
-                print("initialize discriminator for agent {} ...".format(i))
-                with tf.variable_scope("dicriminator_{}".format(i)):
-                    self.disc.append(Discriminator(self.sess, env, name=name, agent_id=i, entcoeff=entcoeff, lr=lr, units=units))
+        with tf.variable_scope("{}_{}".format(name, agent_id)):
+            self._scope = tf.get_variable_scope().name
+
+            self.obs_phs = tf.placeholder(tf.float32, shape=(None,) + env.observation_space[agent_id].shape, name="Obs")
+            #self.obs_phs = tf.placeholder(tf.float32, shape=(None,) + env.observation_space.shape, name="Obs")
+            self.tar_act = tf.placeholder(tf.float32, shape=(None, self.act_dim), name="Obs")
+
+            # inputs for train_op
+            with tf.variable_scope('train_inp'):
+                self.actions = tf.placeholder(dtype=tf.float32, shape=[None, self.act_dim], name='actions')
+                self.rewards = tf.placeholder(dtype=tf.float32, shape=[None,], name='rewards')
+                self.v_preds_next = tf.placeholder(dtype=tf.float32, shape=[None,], name='v_preds_next')
+                self.gaes = tf.placeholder(dtype=tf.float32, shape=[None,], name='gaes')
+
+            with tf.variable_scope("actor"):
+                self.pi = Actor(sess, name, agent_id, self.act_dim, self.obs_phs, a_lr, num_units, discrete=discrete, trainable=True)
+            with tf.variable_scope("old_actor"):
+                self.oldpi = Actor(sess, name, agent_id, self.act_dim, self.obs_phs, a_lr, num_units, discrete=discrete, trainable=False)
+
+            with tf.variable_scope("critic"):
+                self.critic = Critic(sess, name, agent_id, self.obs_phs, c_lr, num_units)
+
+            with tf.variable_scope('update_oldpi'):
+                self.update_oldpi_op = [oldp.assign(p) for p, oldp in zip(self.pi.variables, self.oldpi.variables)]
+
+            self.act_probs = self.pi.act_probs
+            self.logits = self.pi.logits
+            act_probs_old = self.oldpi.act_probs
+
+            # probabilities of actions which agent took with policy
+            act_probs = self.act_probs * self.actions
+            act_probs = tf.reduce_sum(act_probs, axis=1)
+
+            # probabilities of actions which agent took with old policy
+            act_probs_old = act_probs_old * self.actions
+            act_probs_old = tf.reduce_sum(act_probs_old, axis=1)
+
+            with tf.variable_scope('bc_init'):
+                self._bc_loss = tf.reduce_mean(tf.square(self.tar_act - self.act_probs))
+                # self.bc_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.tar_act, logits=self.logits))
+                bc_optim = tf.train.AdamOptimizer(a_lr)
+                self._train_bc_op = bc_optim.minimize(self._bc_loss)
+
+            with tf.variable_scope('optimization'):
+                # construct computation graph for loss_clip
+                # ratios = tf.divide(act_probs, act_probs_old)
+                ratios = tf.exp(tf.log(tf.clip_by_value(act_probs, 1e-10, 1.0))
+                                - tf.log(tf.clip_by_value(act_probs_old, 1e-10, 1.0)))
+                clipped_ratios = tf.clip_by_value(ratios, clip_value_min=1 - clip_value, clip_value_max=1 + clip_value)
+                loss_clip = tf.minimum(tf.multiply(self.gaes, ratios), tf.multiply(self.gaes, clipped_ratios))
+                loss_clip = -tf.reduce_mean(loss_clip)
+
+                # construct computation graph for loss of entropy bonus
+                entropy = -tf.reduce_sum(self.act_probs *
+                                        tf.log(tf.clip_by_value(self.act_probs, 1e-10, 1.0)), axis=1)
+                entropy_loss = -tf.reduce_mean(entropy, axis=0)  # mean of entropy of pi(obs)
+
+                self.a_loss = loss_clip + ent_w * entropy_loss
+
+                # construct computation graph for loss of value function
+                v_preds = self.critic.value
+                advantage = self.rewards + self.gamma * self.v_preds_next - v_preds
+                loss_vf = tf.square(advantage)
+                self.c_loss = tf.reduce_mean(loss_vf)
+
+                optimizer_a = tf.train.AdamOptimizer(learning_rate=a_lr, epsilon=1e-5)
+                self.a_gradients = optimizer_a.compute_gradients(self.a_loss, var_list=self.pi.variables)
+                self.a_train_op = optimizer_a.minimize(self.a_loss)
+
+                optimizer_c = tf.train.AdamOptimizer(learning_rate=c_lr, epsilon=1e-5)
+                self.c_gradients = optimizer_c.compute_gradients(self.c_loss, var_list=self.critic.variables)
+                self.c_train_op = optimizer_c.minimize(self.c_loss)
 
     def init(self):
         self.sess.run(tf.global_variables_initializer())
 
-    def bc_init(self, init_iter, expert_dataset):
-        print("bc initialization for {} iterations".format(init_iter))
-        epoch = len(expert_dataset) // self.batch_size
-        for _ in range(init_iter): 
-            bc_loss = [0.] * self.n_agent
-            for __ in range(epoch):
-                obs_en, act_en = expert_dataset.sample(self.batch_size)
-                for i in range(self.n_agent):
-                    bc_loss[i] += self.ppo[i].bc_init(obs_en[i], act_en[i])
+    def bc_init(self, obs, tar_act):
+        feed_dict = {self.obs_phs: obs, self.tar_act:tar_act}
+        bc_loss, _ = self.sess.run([self._bc_loss, self._train_bc_op], feed_dict=feed_dict)
+        return bc_loss
 
-            bc_loss = list(map(lambda x:x/epoch, bc_loss))
-            print("bc loss in iter {} : {}".format(_, bc_loss))
+    def act(self, obs):
+        feed_dict = {self.obs_phs: [obs]}
+        act = self.pi.act(feed_dict)
+        value = self.critic.get_value(feed_dict)
+        value = np.asscalar(value)
 
-        return 
+        if self.discrete:
+            act = np.eye(self.act_dim)[act[0]]
+        else:
+            act = act[0]
 
-    def act(self, obs_set):
-        """ Accept a observation list, return action list of all agents. """
-        actions = [None for _ in range(self.n_agent)]
-        values = [None for _ in range(self.n_agent)]
-        for i in range(self.n_agent):
-            actions[i], values[i] = self.ppo[i].act(obs_set[i])
+        return act, value
 
-        return actions, values
+    def update_oldpi(self):
+        self.sess.run(self.update_oldpi_op)
 
-    def save(self, dir_path, iteration, max_to_keep):
+    def train(self, obs, actions, rewards, v_preds_next, gaes):
+        # update actor
+        _, a_loss = self.sess.run([self.a_train_op, self.a_loss], feed_dict={  self.obs_phs: obs,
+                                                    self.actions: actions,
+                                                    self.rewards: rewards,
+                                                    self.v_preds_next: v_preds_next,
+                                                    self.gaes: gaes})
+
+        # update critic
+        _, c_loss = self.sess.run([self.c_train_op, self.c_loss], feed_dict={  self.obs_phs: obs,
+                                                    self.rewards: rewards,
+                                                    self.v_preds_next: v_preds_next})
+
+        return {'a_loss': a_loss, 'c_loss': c_loss}
+
+    def get_grad(self, obs, actions, rewards, v_preds_next, gaes):
+        return self.sess.run([self.a_gradient, self.c_gradients], feed_dict={self.obs: obs,
+                                                                       self.actions: actions,
+                                                                       self.rewards: rewards,
+                                                                       self.v_preds_next: v_preds_next,
+                                                                       self.gaes: gaes})
+
+    def save(self, dir_path, epoch, max_to_keep=10):
         """ Save model
         :param dir_path: str, the grandparent directory path for model saving
         :param epoch: int, global step
-        :param max_to_keep: the maximum of keeping models
         """
 
         dir_name = os.path.join(dir_path, self.name)
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
-        model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self.name)
+        else:
+            tf.gfile.DeleteRecursively(dir_name)
+        model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self._scope)
+        #for i in model_vars:
+        #    print(i)
+        #print("sum {} vars".format(len(model_vars)))
         saver = tf.train.Saver(model_vars, max_to_keep=max_to_keep)
-        save_path = saver.save(self.sess, dir_name + "/{}".format(self.name), global_step=iteration)
+        save_path = saver.save(self.sess, dir_name + "/{}".format(self.name+'_'+str(self.agent_id)), global_step=epoch)
         print("[*] Model saved in file: {}".format(save_path))
 
     def load(self, dir_path, epoch=None):
@@ -197,62 +265,16 @@ class GAIL(BaseAgent):
         file_path = None
 
         dir_name = os.path.join(dir_path, self.name)
-        model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.name)
+        model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self._scope)
+        #for i in model_vars:
+        #    print(i)
+        #print("sum {} vars".format(len(model_vars)))
         saver = tf.train.Saver(model_vars)
-        print("loading [*] Model from dir: {}".format(dir_name))
+        print("Loading [*] Model from {}".format(dir_name))
         if epoch is not None:
             file_path = os.path.join(dir_name, "{}-{}".format(self.name, epoch))
             saver.restore(self.sess, file_path)
         else:
             file_path = dir_name
             saver.restore(self.sess, tf.train.latest_checkpoint(file_path))
-        print("[*] Model loaded in file: {}".format(file_path))
-
-    def train(self, expert_dataset, learning_dataset):
-        ## d step
-        d_loss = [0.] * self.n_agent
-        de_loss = [0.] * self.n_agent
-        da_loss = [0.] * self.n_agent
-
-        print("train discriminators for {} times".format(self.d_step))
-        for _ in range(self.d_step): # train Discriminators 2 times
-            expert_obs, expert_act = expert_dataset.sample(self.batch_size)
-            agent_obs, agent_act, _, _, _, _ = learning_dataset.sample(self.batch_size)
-            for i in range(self.n_agent):
-                loss, e_loss, a_loss = self.disc[i].train(expert_obs[i], expert_act[i], agent_obs[i], agent_act[i])
-                d_loss[i] += loss
-                de_loss += e_loss
-                da_loss += a_loss
-
-        d_loss = [_  / self.d_step for _ in d_loss]
-        de_loss = [_  / self.d_step for _ in de_loss]
-        da_loss = [_  / self.d_step for _ in da_loss]
-
-        obs_n, act_n, _, _, _, _ = learning_dataset.sample(5)
-        for i in range(self.n_agent):
-            # print("agent-(s,a): ({},{})".format(obs_n, act_n))
-            print("agent-reward-D: {}".format(self.disc[i].get_reward(obs_n[i], act_n[i])))
-            obs_en, act_en = expert_dataset.sample(5)
-            # print("expert-(s,a): ({},{})".format(obs_en, act_en))
-            print("expert-reward-D: {}".format(self.disc[i].get_expert_reward(obs_en[i], act_en[i])))
-
-        # compute rewards and gaes
-        learning_dataset.compute(self.gamma, [self.disc[i].get_reward for i in range(self.n_agent)])
-
-        ## p step
-        # p_loss = [0.] * self.n_agent
-        pa_loss = [0.0] * self.n_agent
-        pc_loss = [0.0] * self.n_agent
-        print("train policy for {} times".format(self.p_step))
-        for i in range(self.n_agent):
-            self.ppo[i].update_oldpi()
-            for _ in range(self.p_step): # train policy 6 times
-                obs, actions, rewards, v_preds, v_preds_next, gaes = learning_dataset.sample(self.batch_size)
-                t_info = self.ppo[i].train(obs[i], actions[i], rewards[i], v_preds_next[i], gaes[i])
-                pa_loss[i] += t_info['a_loss']
-                pc_loss[i] += t_info['c_loss']
-
-        pa_loss = [_/self.p_step for _ in pa_loss]
-        pc_loss = [_/self.p_step for _ in pc_loss]
-
-        return {'d_loss': d_loss, 'de_loss': de_loss,'da_loss': da_loss, 'pa_loss': pa_loss, 'pc_loss': pc_loss} 
+        print("Loaded [*] Model from file {}".format(file_path))
