@@ -25,6 +25,7 @@ if __name__ == '__main__':
     parser.add_argument("--scenario", type=str, default="simple", help="name of the scenario script")
     parser.add_argument("--max_episode_len", type=int, default=25, help="maximum episode length")
     parser.add_argument("--sample_episodes", type=int, default=10, help="number of sampling episodes")
+    parser.add_argument("--discrete", action="store_true", default=False, help="is the action discrete")
     parser.add_argument("--iterations", type=int, default=100, help="number of training iterations")
     # parser.add_argument("--num_agents", type=int, default=2, help="number of agents")
     # Core training parameters
@@ -77,7 +78,7 @@ if __name__ == '__main__':
     expert_dataset = Dataset(args.scenario, num_agents, args.batch_size, capacity=args.dataset_size)
     expert_dataset.load_data(args.data_dir)
     learning_dataset = PPODataset(args.exp_name, num_agents, batch_size=args.batch_size)
-    gail = GAIL(sess, env, args.scenario, exp_name, num_agents, args.batch_size, args.entcoeff, args.lr, args.gamma, args.p_step, args.d_step, args.units)
+    gail = GAIL(sess, env, args.scenario, exp_name, num_agents, args.batch_size, args.entcoeff, args.lr, args.gamma, args.p_step, args.d_step, args.units, args.discrete)
 
     if not is_evaluate:
         # initialize summary
@@ -154,6 +155,7 @@ if __name__ == '__main__':
         num_episodes = 100
     for iteration in range(iterations):
         # sample interations
+        print("\n-----------------------------------------------------------------")
         print("sample interactions...")
         all_episode_r_n = []
         episode_r_all_sum = []
@@ -212,7 +214,6 @@ if __name__ == '__main__':
 
             # print("-----------------------------------------------------------------")
             print("----[iteration]: {} | [pa-loss]: {} | [pc-loss]: {} | [d-loss]: {} | [de-loss]: {}| [da-loss]: {}  | [inter-time]: {}".format(iteration, pa_loss, pc_loss, d_loss, de_loss, da_loss, round(time.time()-t_start),4))
-            print("-----------------------------------------------------------------\n")
             t_start = time.time()
 
             if (iteration+1) % args.save_interval == 0:
