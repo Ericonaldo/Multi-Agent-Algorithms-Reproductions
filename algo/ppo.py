@@ -154,9 +154,11 @@ class PPO(BaseAgent):
             act_probs_old = act_probs_old * self.actions
             act_probs_old = tf.reduce_sum(act_probs_old, axis=1)
 
-            with tf.variable_scope('bc_init'):
-                self._bc_loss = tf.reduce_mean(tf.square(self.tar_act - self.act_probs))
-                # self.bc_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.tar_act, logits=self.logits))
+            with tf.variable_scope('bc_init'): 
+                if self.discrete:
+                    self.bc_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.tar_act, logits=self.logits))
+                else:
+                    self._bc_loss = tf.reduce_mean(tf.square(self.tar_act - self.act_probs))
                 bc_optim = tf.train.AdamOptimizer(a_lr)
                 self._train_bc_op = bc_optim.minimize(self._bc_loss)
 
