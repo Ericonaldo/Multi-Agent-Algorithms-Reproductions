@@ -24,6 +24,7 @@ if __name__ == '__main__':
     # Environment
     parser.add_argument("--scenario", type=str, default="simple", help="name of the scenario script")
     parser.add_argument("--max_episode_len", type=int, default=50, help="maximum episode length")
+    parser.add_argument("--discrete", action="store_true", default=False, help="is the action discrete")
     parser.add_argument("--episodes", type=int, default=10000, help="number of episodes")
     parser.add_argument("--epoch", type=int, default=6, help="number of training epochs")
     # parser.add_argument("--num_agents", type=int, default=2, help="number of agents")
@@ -71,7 +72,7 @@ if __name__ == '__main__':
     ppo = [None for _ in range(num_agents)]
     for i in range(num_agents):
         ppo[i] = PPO(sess, env, args.exp_name, i, args.actor_lr, args.critic_lr, args.gamma,
-                            clip_value=0.2, num_units=args.units)
+                            clip_value=0.2, num_units=args.units, discrete=args.discrete)
         ppo[i].init()  # run self.sess.run(tf.global_variables_initializer()) 
 
     dataset = PPODataset(args.exp_name, num_agents, batch_size=args.batch_size)
@@ -193,10 +194,10 @@ if __name__ == '__main__':
             if (ep+1) % args.save_interval == 0:
                 for i in range(num_agents):
                     ppo[i].save(args.save_dir+args.scenario, ep+1, args.max_to_keep)
-                print("\n--- episode-{} | [a-loss]: {} | [c-loss]: {} | [mean-sum-reward]: {} | [inter-time]: {}".format(ep+1, a_loss, c_loss, np.mean(episode_r_all_sum[-args.save_interval:], axis=0))
+                print("--- episode-{} | [a-loss]: {} | [c-loss]: {} | [mean-sum-reward]: {}\n".format(ep+1, a_loss, c_loss, np.mean(episode_r_all_sum[-args.save_interval:])))
 
         if is_evaluate:
-            print("\n--- episode-{} | [sum-reward]: {}".format(ep+1, episode_r_all_sum[-1]))
+            print("--- episode-{} | [sum-reward]: {}\n".format(ep+1, episode_r_all_sum[-1]))
     if is_evaluate:       
         print("mean sum reward in {} episodes: {}".format(num_episodes, np.mean(episode_r_all_sum)))       
     env.close()
