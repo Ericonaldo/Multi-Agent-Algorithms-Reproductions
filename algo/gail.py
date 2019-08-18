@@ -115,7 +115,7 @@ class Discriminator(BaseModel):
 
 
 class GAIL(BaseAgent):
-    def __init__(self, sess, env, scenario, name, n_agent, batch_size=128, entcoeff=0.001, lr=1e-2, gamma=0.99, p_step=3, d_step=1, units=128):
+    def __init__(self, sess, env, scenario, name, n_agent, batch_size=128, entcoeff=0.001, lr=1e-2, gamma=0.99, p_step=3, d_step=1, units=128, discrete=True):
         super().__init__(env, name)
         # == Initialize ==
         self.sess = sess
@@ -124,6 +124,7 @@ class GAIL(BaseAgent):
         self.p_step = p_step
         self.d_step = d_step
         self.gamma = gamma
+        self.discrete = discrete
 
         self.ppo = [] # ppo agents
         self.disc = [] # discriminators
@@ -134,7 +135,7 @@ class GAIL(BaseAgent):
             print("initialize policy agents ...")
             for i in range(self.n_agent):
                 with tf.variable_scope("agent_{}".format(i)):
-                    self.ppo.append(PPO(self.sess, env, name=name, agent_id=i, a_lr=lr, c_lr=lr, gamma=gamma, num_units=units))
+                    self.ppo.append(PPO(self.sess, env, name=name, agent_id=i, a_lr=lr, c_lr=lr, gamma=gamma, num_units=units, discrete=discrete))
 
             # Discriminator
             print("initialize discriminators ...")
@@ -198,12 +199,14 @@ class GAIL(BaseAgent):
         dir_name = os.path.join(dir_path, self.name)
         model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.name)
         saver = tf.train.Saver(model_vars)
+        print("loading [*] Model from dir: {}".format(dir_name))
         if epoch is not None:
             file_path = os.path.join(dir_name, "{}-{}".format(self.name, epoch))
             saver.restore(self.sess, file_path)
         else:
             file_path = dir_name
             saver.restore(self.sess, tf.train.latest_checkpoint(file_path))
+        print("[*] Model loaded in file: {}".format(file_path))
 
     def train(self, expert_dataset, learning_dataset):
         ## d step
