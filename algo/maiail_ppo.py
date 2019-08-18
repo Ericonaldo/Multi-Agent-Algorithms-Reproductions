@@ -69,7 +69,6 @@ class Discriminator(BaseModel):
             # self._loss = loss_expert + loss_agent
             # self._loss = loss_expert
 
-
             optimizer = tf.train.AdamOptimizer(lr)
             gradients = optimizer.compute_gradients(self._loss, self.trainable_variables)
             if self.grad_norm_clipping is not None:
@@ -133,7 +132,7 @@ class Discriminator(BaseModel):
 
 
 class MAIAIL(BaseAgent):
-    def __init__(self, sess, env, scenario, name, n_agent, batch_size=512, entcoeff=0.001, lr=1e-2, gamma=0.99, tau=0.01, memory_size=10**4, p_step=3, d_step=1, units=128, lbd=1, lower_dimension=None, grad_norm_clipping=0.5):
+    def __init__(self, sess, env, scenario, name, n_agent, batch_size=512, entcoeff=0.001, lr=1e-2, gamma=0.99, tau=0.01, memory_size=10**4, p_step=3, d_step=1, units=128, lbd=1, lower_dimension=None, grad_norm_clipping=0.5, discrete=True):
         super().__init__(env, name)
         # == Initialize ==
         self.sess = sess
@@ -143,6 +142,7 @@ class MAIAIL(BaseAgent):
         self.d_step = d_step
         self.lbd = lbd
         self.gamma = gamma
+        self.discrete = discrete
 
         self.ppo = [] # ppo agents
         self.disc = [] # discriminators
@@ -153,7 +153,7 @@ class MAIAIL(BaseAgent):
             print("initialize policy agents ...")
             for i in range(self.n_agent):
                 with tf.variable_scope("agent_{}".format(i)):
-                    self.ppo.append(PPO(self.sess, env, name=name, agent_id=i, a_lr=lr, c_lr=lr, gamma=gamma, num_units=units))
+                    self.ppo.append(PPO(self.sess, env, name=name, agent_id=i, a_lr=lr, c_lr=lr, gamma=gamma, num_units=units, discrete=discrete))
 
             # Discriminator
             print("initialize discriminators ...")
@@ -216,12 +216,14 @@ class MAIAIL(BaseAgent):
         dir_name = os.path.join(dir_path, self.name)
         model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.name)
         saver = tf.train.Saver(model_vars)
+        print("loading [*] Model from dir: {}".format(dir_name))
         if epoch is not None:
             file_path = os.path.join(dir_name, "{}-{}".format(self.name, epoch))
             saver.restore(self.sess, file_path)
         else:
             file_path = dir_name
             saver.restore(self.sess, tf.train.latest_checkpoint(file_path))
+        print("[*] Model loaded in file: {}".format(file_path))
 
     def train(self, expert_dataset, learning_dataset, expert_pdf, agent_pdf, dm):
         ## d step
