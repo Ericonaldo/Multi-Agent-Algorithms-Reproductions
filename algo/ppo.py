@@ -8,7 +8,7 @@ import tensorflow.contrib as tc
 from common.utils import BaseModel, BaseAgent
 
 class Actor(BaseModel):
-    def __init__(self, sess, name, agent_id, act_dim, obs_input, lr=0.01, units=64, trainable=True):
+    def __init__(self, sess, name, agent_id, act_dim, obs_input, lr=0.01, units=64, discrete=True, trainable=True):
         super().__init__(name)
 
         self._lr = lr
@@ -18,6 +18,7 @@ class Actor(BaseModel):
         self._act_dim = act_dim
         self.obs_input = obs_input
         self.trainable = trainable
+        self.discrete = discrete
 
         self._loss = None
         self._train_op = None
@@ -51,10 +52,13 @@ class Actor(BaseModel):
         return out
 
     def act(self, feed_dict, stochastic=True):
-        if stochastic:
-            return self.sess.run(self.act_stochastic, feed_dict=feed_dict)
+        if self.discrete:
+            if stochastic:
+                return self.sess.run(self.act_stochastic, feed_dict=feed_dict)
+            else:
+                return self.sess.run(self.act_deterministic, feed_dict=feed_dict)
         else:
-            return self.sess.run(self.act_deterministic, feed_dict=feed_dict)
+            return self.sess.run(self._act_probs, feed_dict=feed_dict)
 
 
 class Critic(BaseModel):
@@ -94,7 +98,7 @@ class Critic(BaseModel):
  
 
 class PPO(BaseAgent):
-    def __init__(self, sess, env, name, agent_id, a_lr=0.01, c_lr=0.01, gamma=0.95, clip_value=0.2, ent_w=0.01, num_units=64):
+    def __init__(self, sess, env, name, agent_id, a_lr=0.01, c_lr=0.01, gamma=0.95, clip_value=0.2, ent_w=0.01, num_units=64, discrete=True):
         """
         :param clip_value:
         :param en_w: parameter for entropy bonus
@@ -105,6 +109,7 @@ class PPO(BaseAgent):
         self.agent_id = agent_id
         self.gamma = gamma
         self.num_units = num_units
+        self.discrete = discrete
 
         self.sta_dim = env.observation_space[agent_id].shape[0]
         self.act_dim = env.action_space[agent_id].n
@@ -127,9 +132,9 @@ class PPO(BaseAgent):
                 self.gaes = tf.placeholder(dtype=tf.float32, shape=[None,], name='gaes')
 
             with tf.variable_scope("actor"):
-                self.pi = Actor(sess, name, agent_id, self.act_dim, self.obs_phs, a_lr, num_units, trainable=True)
+                self.pi = Actor(sess, name, agent_id, self.act_dim, self.obs_phs, a_lr, num_units, discrete=discrete, trainable=True)
             with tf.variable_scope("old_actor"):
-                self.oldpi = Actor(sess, name, agent_id, self.act_dim, self.obs_phs, a_lr, num_units, trainable=False)
+                self.oldpi = Actor(sess, name, agent_id, self.act_dim, self.obs_phs, a_lr, num_units, discrete=discrete, trainable=False)
 
             with tf.variable_scope("critic"):
                 self.critic = Critic(sess, name, agent_id, self.obs_phs, c_lr, num_units)
@@ -197,9 +202,12 @@ class PPO(BaseAgent):
         feed_dict = {self.obs_phs: [obs]}
         act = self.pi.act(feed_dict)
         value = self.critic.get_value(feed_dict)
-
-        act = np.eye(self.act_dim)[act[0]]
         value = np.asscalar(value)
+
+        if self.discrete:
+            act = np.eye(self.act_dim)[act[0]]
+        else:
+            act = act[0]
 
         return act, value
 
@@ -262,10 +270,11 @@ class PPO(BaseAgent):
         #    print(i)
         #print("sum {} vars".format(len(model_vars)))
         saver = tf.train.Saver(model_vars)
+        print("Loading [*] Model from {}".format(dir_name))
         if epoch is not None:
             file_path = os.path.join(dir_name, "{}-{}".format(self.name, epoch))
             saver.restore(self.sess, file_path)
         else:
             file_path = dir_name
             saver.restore(self.sess, tf.train.latest_checkpoint(file_path))
-        # print("[!] Load model failed, please check {} exists".format(file_path))
+        print("Loaded [*] Model from file {}".format(file_path))
